@@ -7,7 +7,7 @@ Steps, in order:
 1. src.io: prescribing, registered patients, weather and practice locations into dataset/.
 2. src.preprocess: join them into dataset/processed/model_table.csv.
 3. src.feature: forecasting features (HORIZON months ahead) into dataset/processed/features.csv.
-Modelling (src.model) and charts (src.graph) are not written yet.
+Then run src.model (once per --target) and src.graph separately; see their docstrings.
 """
 
 import logging

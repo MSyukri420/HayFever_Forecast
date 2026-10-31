@@ -3,6 +3,10 @@
 Usage:
     python -m src.model                       # antihistamines (per1000_antihist)
     python -m src.model --target nasal        # or eye
+    python -m src.model --valid-only --change "what changed"
+                                              # validation only (~1 min, no test metrics),
+                                              # logged to output/experiments.csv (src.experiments)
+    python -m src.model --params base         # ignore TUNED_PARAMS (latest-tune: last src.tune result)
 
 Baselines:
     last_year       the rate in the same month last year (lag12)
@@ -18,8 +22,8 @@ LightGBM variants (all on feature.FORECAST_FEATURES), differing in loss and in w
                     beyond the levels they were trained on; adding the base back lets a rising
                     level carry into the forecast.
     lgb_l2_ratio    rate / winter base, squared loss (the season as a multiple of the base)
-The chosen variant is the one with the lowest regional error on the 2023 validation year
-(CHOOSE_BY). The test period is never used to choose.
+The chosen variant is the one with the lowest CHOOSE_BY averaged over the validation years.
+The test period is never used to choose.
 
     lightgbm        the chosen variant retrained every month, as it would be in use: the
                     forecast for month t is made by a model trained on targets up to t - 3 only
@@ -27,21 +31,47 @@ The chosen variant is the one with the lowest regional error on the 2023 validat
                     The variants above are frozen at the end of 2023 and drift low as rates
                     keep rising; monthly retraining is what removes most of that bias.
 
+Validation: one fold per year in VALID_YEARS (2021, 2022, 2023). Each fold trains on all earlier
+years and scores that year; early stopping on the same year picks its tree count. One year is
+only 12 monthly regional errors, so a single year's score moves by several tenths of a point
+by chance; averaging three years, and asking a change to win in each (src.experiments), keeps
+choices from chasing that noise.
+
 Time split (target months):
-    fit     2014 - 2022     training
-    valid   2023            early stopping picks the number of trees; variants are compared here
-    refit   2014 - 2023     final model with that number of trees
+    valid   2021, 2022, 2023   one fold each, trained on the years before
+    refit   2014 - 2023        final model with the 2023 fold's tree count
     test    Mar 2024 - Aug 2026
 The test starts in March 2024, not January: features are 3 months old, so the first forecast
 the end-2023 model could really have made is for March 2024 (data to Dec 2023).
-Every model is scored on the same test rows: those where both baselines have a value.
+Every model is scored on the same rows: those where both baselines have a value.
 
-Results go to output/results/: <target>_scores.csv (test, one row per model), <target>_valid.csv
-(2023, the variant choice), <target>_by_month.csv, <target>_by_group.csv (by town and list size),
-<target>_monthly_bias.csv, <target>_importance.csv and <target>_predictions.csv.
+Tried and rejected (output/experiments.csv has the scores), on the 3-year validation:
+    blend with last_year_lift    weight per year chosen on the other two years. Antihistamines
+                                 3.89 -> 3.83 (better in 2021 and 2023, worse in 2022), nasal and
+                                 eye worse. The best weight swung from 0.3 to 1.0 between years.
+    reconcile to region model    practice forecasts scaled to a ridge regression on the
+                                 region-level series. Worse for antihistamines (4.56) and eye
+                                 drops (10.7); nasal level (3.89, worse in 2023). About 70 region
+                                 months is too little to beat the sum of the practice forecasts.
+    average the variants         all five: antihistamines 3.89 -> 3.76 and nasal 3.91 -> 3.76,
+                                 but all of it from 2022 (worse in 2021 and 2023); eye worse.
+                                 Top three (picked on the other years): worse or level.
+    Optuna tuning                25 trials on 2021-22 per target. Antihistamines first scored
+                                 3.89 -> 3.66 (better every year) but that was one lucky seed:
+                                 over 5 seeds, default 3.86 vs tuned 3.78 (-2%), and worse in
+                                 2023 (3.46 -> 3.60), the year the search never saw. Nasal 3.91
+                                 -> 3.73 but worse in 2023; eye drops: no trial beat the defaults.
+Seed noise: with subsample < 1, changing the random seed alone moves one year's score by
+0.1-0.2 and the 3-year mean by ~0.05. Check any candidate across several seeds before keeping it.
+
+Results go to output/results/: <target>_valid.csv (per year and mean, the variant choice),
+and unless --valid-only: <target>_scores.csv (test, one row per model), <target>_by_month.csv,
+<target>_by_group.csv (by town and list size), <target>_monthly_bias.csv,
+<target>_importance.csv and <target>_predictions.csv.
 """
 
 import argparse
+import json
 import logging
 from pathlib import Path
 
@@ -49,13 +79,15 @@ import lightgbm as lgb
 import numpy as np
 import pandas as pd
 
+from . import experiments
 from . import feature as F
 from . import io
 
 log = logging.getLogger(__name__)
 
 SEED = 42
-FIT_END, VALID_END = 202212, 202312
+VALID_YEARS = (2021, 2022, 2023)
+VALID_END = VALID_YEARS[-1] * 100 + 12
 TEST_START, TEST_END = 202403, 202608
 PEAK_MONTHS = (5, 6, 7)
 CHOOSE_BY = "regional_mape_pct"
@@ -73,6 +105,14 @@ PARAMS = {
     "random_state": SEED,
     "verbose": -1,
 }
+
+# Settings from src.tune that passed the keep rule (output/experiments.csv), per target; others
+# use PARAMS. Empty: no tuning has survived a check across random seeds (see "Tried and rejected").
+TUNED_PARAMS = {}
+
+
+def params_for(group):
+    return {**PARAMS, **TUNED_PARAMS.get(group, {})}
 
 # name -> (LightGBM objective, what the model predicts)
 VARIANTS = {
@@ -102,32 +142,43 @@ def _decode(pred, df, g, form):
     return {"rate": pred, "excess": pred + base, "ratio": pred * base}[form]
 
 
-def fit_lightgbm(df, target, g, objective, form, features=F.FORECAST_FEATURES):
-    """Early-stop on 2023, then refit on 2014-2023 with the chosen number of trees.
-    Returns the refit model and the 2023 predictions of the early-stopping model."""
+def _in_year(df, year):
+    return df["YEAR_MONTH"] // 100 == year
+
+
+def validate(df, target, g, objective, form, params=None, years=VALID_YEARS, features=F.FORECAST_FEATURES):
+    """One fold per year in ``years``: train on earlier years, early-stop on and predict that year.
+    Returns predictions for every validation row and the tree count of each fold."""
     y = _encode(df, target, g, form)
     usable = y.notna() & np.isfinite(y)  # excess/ratio need a winter base
-    fit = usable & (df["YEAR_MONTH"] <= FIT_END)
-    valid = usable & df["YEAR_MONTH"].between(FIT_END + 1, VALID_END)
-    params = {**PARAMS, "objective": objective}
-    probe = lgb.LGBMRegressor(**params).fit(
-        df.loc[fit, features], y[fit], eval_X=(df.loc[valid, features],), eval_y=(y[valid],),
-        callbacks=[lgb.early_stopping(200, verbose=False)])
-    n_trees = probe.best_iteration_
-
-    train = usable & (df["YEAR_MONTH"] <= VALID_END)
-    model = lgb.LGBMRegressor(**{**params, "n_estimators": n_trees}).fit(df.loc[train, features], y[train])
-    in_2023 = df["YEAR_MONTH"].between(FIT_END + 1, VALID_END)
-    valid_pred = pd.Series(_decode(probe.predict(df.loc[in_2023, features]), df[in_2023], g, form),
-                           index=df.index[in_2023])
-    return model, n_trees, valid_pred
+    params = {**(params or PARAMS), "objective": objective}
+    pred, trees = pd.Series(np.nan, index=df.index), {}
+    for year in years:
+        fit = usable & (df["YEAR_MONTH"] // 100 < year)
+        valid = usable & _in_year(df, year)
+        probe = lgb.LGBMRegressor(**params).fit(
+            df.loc[fit, features], y[fit], eval_X=(df.loc[valid, features],), eval_y=(y[valid],),
+            callbacks=[lgb.early_stopping(200, verbose=False)])
+        rows = _in_year(df, year)
+        pred[rows] = _decode(probe.predict(df.loc[rows, features]), df[rows], g, form)
+        trees[year] = probe.best_iteration_
+    return pred, trees
 
 
-def rolling_forecast(df, target, g, objective, form, n_trees, months, features=F.FORECAST_FEATURES):
+def refit(df, target, g, objective, form, n_trees, params=None, features=F.FORECAST_FEATURES):
+    """Final frozen model on everything up to VALID_END."""
+    y = _encode(df, target, g, form)
+    train = y.notna() & np.isfinite(y) & (df["YEAR_MONTH"] <= VALID_END)
+    params = {**(params or PARAMS), "objective": objective, "n_estimators": n_trees}
+    return lgb.LGBMRegressor(**params).fit(df.loc[train, features], y[train])
+
+
+def rolling_forecast(df, target, g, objective, form, n_trees, months, params=None,
+                     features=F.FORECAST_FEATURES):
     """Forecast each month in ``months`` with a model trained on targets up to that month - HORIZON."""
     y = _encode(df, target, g, form)
     usable = y.notna() & np.isfinite(y)
-    params = {**PARAMS, "objective": objective, "n_estimators": n_trees}
+    params = {**(params or PARAMS), "objective": objective, "n_estimators": n_trees}
     pred = pd.Series(np.nan, index=df.index)
     for ym in months:
         m = F._month_index(ym) - F.HORIZON
@@ -176,32 +227,46 @@ def _breakdowns(rows, target, models):
     return by_month, by_group, monthly_bias
 
 
-def run(group="antihist"):
+def validation_scores(df, target, models):
+    """_scores for each VALID_YEARS fold, plus their mean (year == "mean")."""
+    per_year = pd.concat([_scores(df[_in_year(df, y)].dropna(subset=BASELINES), target, models).assign(year=y)
+                          for y in VALID_YEARS])
+    mean = per_year.drop(columns="year").groupby("model", sort=False).mean().round(3).reset_index()
+    mean["rows"] = mean["rows"].round().astype(int)
+    return pd.concat([per_year, mean.assign(year="mean")], ignore_index=True)
+
+
+def run(group="antihist", valid_only=False, params=None):
+    """Validate every variant and choose one; unless ``valid_only``, then refit and score the test.
+    ``params`` defaults to params_for(group). Returns (valid_scores, chosen, test results or None)."""
     target = f"per1000_{group}"
+    params = params or params_for(group)
     df = pd.read_csv(io.DATA_DIR / "processed" / "features.csv")
     df[BASELINES] = baselines(df, group)
-    test_rows = df["YEAR_MONTH"].between(TEST_START, TEST_END)
-    valid_rows = df["YEAR_MONTH"].between(FIT_END + 1, VALID_END)
 
-    fitted, trees = {}, {}
+    trees = {}
     for name, (objective, form) in VARIANTS.items():
-        model, n_trees, valid_pred = fit_lightgbm(df, target, group, objective, form)
-        df.loc[valid_rows, f"{name}_valid"] = valid_pred
-        df.loc[test_rows, name] = _decode(model.predict(df.loc[test_rows, F.FORECAST_FEATURES]),
+        df[name], trees[name] = validate(df, target, group, objective, form, params)
+        log.info("%s: trees per fold %s", name, trees[name])
+
+    valid_scores = validation_scores(df, target, BASELINES + list(VARIANTS))
+    mean = valid_scores[(valid_scores["year"] == "mean") & valid_scores["model"].isin(VARIANTS)]
+    chosen = mean.sort_values(CHOOSE_BY)["model"].iloc[0]
+    log.info("chosen on mean %s over %s: %s", CHOOSE_BY, VALID_YEARS, chosen)
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    valid_scores.to_csv(RESULTS_DIR / f"{group}_valid.csv", index=False)
+    if valid_only:
+        return valid_scores, chosen, None
+
+    test_rows = df["YEAR_MONTH"].between(TEST_START, TEST_END)
+    fitted = {}
+    for name, (objective, form) in VARIANTS.items():
+        fitted[name] = refit(df, target, group, objective, form, trees[name][VALID_YEARS[-1]], params)
+        df.loc[test_rows, name] = _decode(fitted[name].predict(df.loc[test_rows, F.FORECAST_FEATURES]),
                                           df[test_rows], group, form)
-        fitted[name], trees[name] = model, n_trees
-        log.info("%s: %d trees", name, n_trees)
-
-    # choose on 2023 only, using the early-stopping models (trained to 2022)
-    valid = df[valid_rows].dropna(subset=BASELINES).copy()
-    for name in VARIANTS:
-        valid[name] = valid[f"{name}_valid"]
-    valid_scores = _scores(valid, target, BASELINES + list(VARIANTS))
-    chosen = valid_scores[valid_scores["model"].isin(VARIANTS)].sort_values(CHOOSE_BY)["model"].iloc[0]
-    log.info("chosen on 2023 %s: %s; retraining it monthly over the test period", CHOOSE_BY, chosen)
-
     months = sorted(df.loc[test_rows, "YEAR_MONTH"].unique())
-    df["lightgbm"] = rolling_forecast(df, target, group, *VARIANTS[chosen], trees[chosen], months)
+    df["lightgbm"] = rolling_forecast(df, target, group, *VARIANTS[chosen],
+                                      trees[chosen][VALID_YEARS[-1]], months, params)
     test = df[test_rows].dropna(subset=BASELINES).copy()
     models = BASELINES + list(VARIANTS) + ["lightgbm"]
     scores = _scores(test, target, models)
@@ -210,9 +275,7 @@ def run(group="antihist"):
     importance = pd.Series(fitted[chosen].booster_.feature_importance("gain"), index=F.FORECAST_FEATURES)
     importance = (importance / importance.sum() * 100).round(1).sort_values(ascending=False)
 
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     scores.to_csv(RESULTS_DIR / f"{group}_scores.csv", index=False)
-    valid_scores.to_csv(RESULTS_DIR / f"{group}_valid.csv", index=False)
     by_month.to_csv(RESULTS_DIR / f"{group}_by_month.csv")
     by_group.to_csv(RESULTS_DIR / f"{group}_by_group.csv")
     monthly_bias.to_csv(RESULTS_DIR / f"{group}_monthly_bias.csv")
@@ -220,19 +283,37 @@ def run(group="antihist"):
     df.loc[test_rows, ["YEAR_MONTH", "PRACTICE_CODE", "TOWN", "PATIENTS", target] + models].to_csv(
         RESULTS_DIR / f"{group}_predictions.csv", index=False)
     log.info("results in %s", RESULTS_DIR)
-    return valid_scores, scores, monthly_bias, importance
+    return valid_scores, chosen, (scores, monthly_bias, importance)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--target", choices=F.GROUPS, default="antihist")
+    parser.add_argument("--valid-only", action="store_true",
+                        help="stop after validation: no refit, no test metrics")
+    parser.add_argument("--change", help="log this run to output/experiments.csv with this description")
+    parser.add_argument("--note", default="")
+    parser.add_argument("--params", choices=["kept", "base", "latest-tune"], default="kept",
+                        help="kept: params_for(target) (TUNED_PARAMS where kept, else PARAMS); "
+                             "base: PARAMS; latest-tune: the last src.tune result for this target")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
-    valid_scores, scores, monthly_bias, importance = run(args.target)
-    print("2023 validation:", valid_scores.to_string(index=False), "Test:", scores.to_string(index=False),
-          "Regional bias by test month (%):", monthly_bias.to_string(), importance.head(10).to_string(),
-          sep="\n\n")
+    params = {"kept": params_for(args.target), "base": PARAMS}.get(args.params)
+    if args.params == "latest-tune":
+        params = {**PARAMS, **json.loads((RESULTS_DIR / f"{args.target}_tuned_params.json").read_text())}
+    valid_scores, chosen, test = run(args.target, args.valid_only, params)
+    print("Validation:", valid_scores.to_string(index=False), sep="\n")
+    if args.change:
+        row = valid_scores[valid_scores["model"] == chosen].set_index("year")[CHOOSE_BY]
+        label = chosen + ("" if params == PARAMS else "+tuned")
+        kept = experiments.log_run(args.target, label, args.change,
+                                   {y: row[y] for y in VALID_YEARS}, note=args.note)
+        print(f"\nlogged: {label}, mean {CHOOSE_BY} {row['mean']:.3f}, kept={kept}")
+    if test is not None:
+        scores, monthly_bias, importance = test
+        print("\nTest:", scores.to_string(index=False), "Regional bias by test month (%):",
+              monthly_bias.to_string(), importance.head(10).to_string(), sep="\n\n")
 
 
 if __name__ == "__main__":
