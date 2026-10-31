@@ -29,6 +29,12 @@ known in advance, so they describe month t itself.
     LAT, LON                  practice location
 (<g> is antihist, nasal or eye.) The lag numbers above assume HORIZON = 3.
 
+Tried and dropped: spring warmth (degree days above 5 °C since 1 Jan, its anomaly, and its
+change on last year) as a pollen stand-in. It made May-Jul forecasts slightly worse for all
+three drug groups and did not improve 2023 validation for antihistamines or nasal sprays:
+June prescribing follows June's own weather (e.g. warm spring 2024, cool June, moderate
+season), which is not known 3 months ahead.
+
 SAME_MONTH_WEATHER is the weather in month t itself. It is not known when forecasting,
 so use it only for explaining past seasons, never in a forecast model.
 
