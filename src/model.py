@@ -30,6 +30,17 @@ The test period is never used to choose.
                     (the same months its features can see), with the tree count fixed from 2023.
                     The variants above are frozen at the end of 2023 and drift low as rates
                     keep rising; monthly retraining is what removes most of that bias.
+    pytorch         a small neural network (src.nn) on the same features, validated and retrained
+                    monthly in the same way, as a second model family. It is reported, not chosen
+                    from: on validation it is behind the LightGBM variants (--no-nn skips it).
+
+Prediction intervals (INTERVAL, 80%): split conformal, calibrated on the chosen variant's
+validation forecasts (2021-2023), per calendar month, with the error scaled by a Poisson-like
+spread so smaller practices get wider ranges; and a regional range from the validation months'
+relative errors of the regional total. src.evaluate checks how often the test falls inside.
+
+Explanations: TreeSHAP contributions of the frozen chosen model on the test rows (LightGBM's
+pred_contrib), in items per 1,000 (shap_in_rate_units).
 
 Validation: one fold per year in VALID_YEARS (2021, 2022, 2023). Each fold trains on all earlier
 years and scores that year; early stopping on the same year picks its tree count. One year is
@@ -67,7 +78,9 @@ Seed noise: with subsample < 1, changing the random seed alone moves one year's 
 Results go to output/results/: <target>_valid.csv (per year and mean, the variant choice),
 and unless --valid-only: <target>_scores.csv (test, one row per model), <target>_by_month.csv,
 <target>_by_group.csv (by town and list size), <target>_monthly_bias.csv,
-<target>_importance.csv and <target>_predictions.csv.
+<target>_importance.csv (mean |SHAP| and gain shares), <target>_shap_by_month.csv,
+<target>_predictions.csv (with the lightgbm_lo/hi range) and <target>_model.json (the choice,
+tree count, settings and interval calibration, used by src.forecast).
 """
 
 import argparse
@@ -82,6 +95,7 @@ import pandas as pd
 from . import experiments
 from . import feature as F
 from . import io
+from . import nn
 
 log = logging.getLogger(__name__)
 
@@ -123,6 +137,7 @@ VARIANTS = {
     "lgb_l2_ratio": ("regression", "ratio"),
 }
 BASELINES = ["last_year", "last_year_lift"]
+INTERVAL = 0.8  # coverage of the prediction intervals
 
 
 def baselines(df, g):
@@ -190,6 +205,49 @@ def rolling_forecast(df, target, g, objective, form, n_trees, months, params=Non
     return pred
 
 
+def _poisson_scale(pred, patients):
+    """Rough SD of a practice's monthly rate if its items were Poisson: sqrt(rate * 1000 / patients)."""
+    return np.sqrt(np.maximum(pred, 0.5) * 1000 / patients)
+
+
+def interval_quantiles(rows, target, pred):
+    """Calibrate INTERVAL prediction intervals on out-of-sample (validation) forecasts in ``pred``.
+    Practice level (split conformal, per calendar month): quantiles of the error divided by
+    _poisson_scale, so a small list gets a wider range. Regional: quantiles of the regional total's
+    relative error over the validation months."""
+    lo, hi = (1 - INTERVAL) / 2, (1 + INTERVAL) / 2
+    rows = rows.dropna(subset=[pred, target])
+    score = (rows[target] - rows[pred]) / _poisson_scale(rows[pred], rows["PATIENTS"])
+    practice = score.groupby(rows["YEAR_MONTH"] % 100).quantile([lo, hi]).unstack()
+    region = rows[[target, pred]].mul(rows["PATIENTS"] / 1000, axis=0).groupby(rows["YEAR_MONTH"]).sum()
+    rel = region[target] / region[pred] - 1
+    return {"practice": {int(m): [round(a, 4), round(b, 4)] for m, (a, b) in practice.iterrows()},
+            "region": [round(rel.quantile(lo), 4), round(rel.quantile(hi), 4)]}
+
+
+def add_intervals(rows, pred, quantiles, patients="PATIENTS"):
+    """Lower and upper bounds of the INTERVAL range around the practice forecasts in ``pred``."""
+    by_month = {int(m): q for m, q in quantiles["practice"].items()}  # JSON keys are strings
+    q = np.array([by_month[m] for m in rows["YEAR_MONTH"] % 100])
+    scale = _poisson_scale(rows[pred], rows[patients])
+    return (rows[pred] + q[:, 0] * scale).clip(lower=0), rows[pred] + q[:, 1] * scale
+
+
+def shap_in_rate_units(model, rows, g, form, features=F.FORECAST_FEATURES):
+    """TreeSHAP contributions (LightGBM pred_contrib) converted to items per 1,000, so they add up to
+    the forecast for every form: rate = start + sum of contributions. "start" is the model's average
+    output, plus the practice's winter base for the excess form; ratio contributions are scaled by
+    the winter base."""
+    contrib = pd.DataFrame(model.booster_.predict(rows[features], pred_contrib=True),
+                           columns=features + ["start"], index=rows.index)
+    base = rows[f"{g}_winter_base"]
+    if form == "ratio":
+        contrib = contrib.mul(base, axis=0)
+    elif form == "excess":
+        contrib["start"] += base
+    return contrib
+
+
 def _scores(rows, target, models):
     """MAE per practice-month (all, May-Jul, Aug-Apr), and regional error: the whole West Midlands'
     monthly items, predicted vs actual, as bias over the period and mean absolute % error per month."""
@@ -236,9 +294,10 @@ def validation_scores(df, target, models):
     return pd.concat([per_year, mean.assign(year="mean")], ignore_index=True)
 
 
-def run(group="antihist", valid_only=False, params=None):
+def run(group="antihist", valid_only=False, params=None, with_nn=True):
     """Validate every variant and choose one; unless ``valid_only``, then refit and score the test.
-    ``params`` defaults to params_for(group). Returns (valid_scores, chosen, test results or None)."""
+    ``params`` defaults to params_for(group). ``with_nn`` adds the PyTorch comparison (src.nn).
+    Returns (valid_scores, chosen, test results or None)."""
     target = f"per1000_{group}"
     params = params or params_for(group)
     df = pd.read_csv(io.DATA_DIR / "processed" / "features.csv")
@@ -248,8 +307,12 @@ def run(group="antihist", valid_only=False, params=None):
     for name, (objective, form) in VARIANTS.items():
         df[name], trees[name] = validate(df, target, group, objective, form, params)
         log.info("%s: trees per fold %s", name, trees[name])
+    others = []
+    if with_nn:
+        df["pytorch"], epochs = nn.validate(df, target, group)
+        others = ["pytorch"]
 
-    valid_scores = validation_scores(df, target, BASELINES + list(VARIANTS))
+    valid_scores = validation_scores(df, target, BASELINES + list(VARIANTS) + others)
     mean = valid_scores[(valid_scores["year"] == "mean") & valid_scores["model"].isin(VARIANTS)]
     chosen = mean.sort_values(CHOOSE_BY)["model"].iloc[0]
     log.info("chosen on mean %s over %s: %s", CHOOSE_BY, VALID_YEARS, chosen)
@@ -257,6 +320,8 @@ def run(group="antihist", valid_only=False, params=None):
     valid_scores.to_csv(RESULTS_DIR / f"{group}_valid.csv", index=False)
     if valid_only:
         return valid_scores, chosen, None
+    valid_rows = df["YEAR_MONTH"].between(VALID_YEARS[0] * 100 + 1, VALID_END)
+    quantiles = interval_quantiles(df[valid_rows].dropna(subset=BASELINES), target, chosen)
 
     test_rows = df["YEAR_MONTH"].between(TEST_START, TEST_END)
     fitted = {}
@@ -265,23 +330,39 @@ def run(group="antihist", valid_only=False, params=None):
         df.loc[test_rows, name] = _decode(fitted[name].predict(df.loc[test_rows, F.FORECAST_FEATURES]),
                                           df[test_rows], group, form)
     months = sorted(df.loc[test_rows, "YEAR_MONTH"].unique())
-    df["lightgbm"] = rolling_forecast(df, target, group, *VARIANTS[chosen],
-                                      trees[chosen][VALID_YEARS[-1]], months, params)
+    n_trees = trees[chosen][VALID_YEARS[-1]]
+    df["lightgbm"] = rolling_forecast(df, target, group, *VARIANTS[chosen], n_trees, months, params)
+    df.loc[test_rows, "lightgbm_lo"], df.loc[test_rows, "lightgbm_hi"] = add_intervals(
+        df[test_rows], "lightgbm", quantiles)
+    if with_nn:
+        df["pytorch"] = nn.rolling_forecast(df, target, group, epochs[VALID_YEARS[-1]], months)
     test = df[test_rows].dropna(subset=BASELINES).copy()
-    models = BASELINES + list(VARIANTS) + ["lightgbm"]
+    models = BASELINES + list(VARIANTS) + ["lightgbm"] + others
     scores = _scores(test, target, models)
     scores.insert(1, "chosen", scores["model"] == chosen)
-    by_month, by_group, monthly_bias = _breakdowns(test, target, BASELINES + ["lightgbm"])
-    importance = pd.Series(fitted[chosen].booster_.feature_importance("gain"), index=F.FORECAST_FEATURES)
-    importance = (importance / importance.sum() * 100).round(1).sort_values(ascending=False)
+    by_month, by_group, monthly_bias = _breakdowns(test, target, BASELINES + ["lightgbm"] + others)
+
+    # what drives the forecasts: TreeSHAP of the frozen chosen model on the test rows
+    contrib = shap_in_rate_units(fitted[chosen], test, group, VARIANTS[chosen][1])
+    gain = pd.Series(fitted[chosen].booster_.feature_importance("gain"), index=F.FORECAST_FEATURES)
+    shap = contrib[F.FORECAST_FEATURES].abs().mean()
+    importance = pd.DataFrame({"shap_pct": shap / shap.sum() * 100, "gain_pct": gain / gain.sum() * 100})
+    importance = importance.round(1).sort_values("shap_pct", ascending=False)
+    shap_by_month = contrib.groupby(test["YEAR_MONTH"] % 100).mean().round(3)
+    shap_by_month.index.name = "calendar_month"  # "month" is also a feature column
 
     scores.to_csv(RESULTS_DIR / f"{group}_scores.csv", index=False)
     by_month.to_csv(RESULTS_DIR / f"{group}_by_month.csv")
     by_group.to_csv(RESULTS_DIR / f"{group}_by_group.csv")
     monthly_bias.to_csv(RESULTS_DIR / f"{group}_monthly_bias.csv")
-    importance.rename("gain_pct").to_csv(RESULTS_DIR / f"{group}_importance.csv")
-    df.loc[test_rows, ["YEAR_MONTH", "PRACTICE_CODE", "TOWN", "PATIENTS", target] + models].to_csv(
-        RESULTS_DIR / f"{group}_predictions.csv", index=False)
+    importance.to_csv(RESULTS_DIR / f"{group}_importance.csv")
+    shap_by_month.to_csv(RESULTS_DIR / f"{group}_shap_by_month.csv")
+    keep = ["YEAR_MONTH", "PRACTICE_CODE", "TOWN", "PATIENTS", target] + models + ["lightgbm_lo", "lightgbm_hi"]
+    df.loc[test_rows, keep].to_csv(RESULTS_DIR / f"{group}_predictions.csv", index=False)
+    # everything src.forecast needs to train the deployed model the same way
+    (RESULTS_DIR / f"{group}_model.json").write_text(json.dumps({
+        "chosen": chosen, "n_trees": int(n_trees), "params": params, "interval": INTERVAL,
+        "quantiles": quantiles}, indent=2))
     log.info("results in %s", RESULTS_DIR)
     return valid_scores, chosen, (scores, monthly_bias, importance)
 
@@ -293,6 +374,7 @@ def main():
                         help="stop after validation: no refit, no test metrics")
     parser.add_argument("--change", help="log this run to output/experiments.csv with this description")
     parser.add_argument("--note", default="")
+    parser.add_argument("--no-nn", action="store_true", help="skip the PyTorch comparison (src.nn)")
     parser.add_argument("--params", choices=["kept", "base", "latest-tune"], default="kept",
                         help="kept: params_for(target) (TUNED_PARAMS where kept, else PARAMS); "
                              "base: PARAMS; latest-tune: the last src.tune result for this target")
@@ -302,7 +384,7 @@ def main():
     params = {"kept": params_for(args.target), "base": PARAMS}.get(args.params)
     if args.params == "latest-tune":
         params = {**PARAMS, **json.loads((RESULTS_DIR / f"{args.target}_tuned_params.json").read_text())}
-    valid_scores, chosen, test = run(args.target, args.valid_only, params)
+    valid_scores, chosen, test = run(args.target, args.valid_only, params, with_nn=not args.no_nn)
     print("Validation:", valid_scores.to_string(index=False), sep="\n")
     if args.change:
         row = valid_scores[valid_scores["model"] == chosen].set_index("year")[CHOOSE_BY]

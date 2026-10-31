@@ -11,6 +11,7 @@ figure_data.csv holds every plotted number, as a table view of the charts.
 items per 1,000 registered patients, the same way src.model scores regional error.
 """
 
+import json
 import logging
 
 import matplotlib
@@ -30,8 +31,9 @@ log = logging.getLogger(__name__)
 FIGURES_DIR = M.RESULTS_DIR.parents[1] / "docs" / "figures"
 
 GROUP_LABELS = {"antihist": "Antihistamine tablets", "nasal": "Nasal sprays", "eye": "Eye drops"}
-MODEL_LABELS = {"lightgbm": "LightGBM", "last_year_lift": "Last year's lift (baseline)",
-                "last_year": "Same month last year (baseline)"}
+MODEL_LABELS = {"lightgbm": "LightGBM", "pytorch": "PyTorch network",
+                "last_year_lift": "Last year's lift (baseline)"}
+MODELS = list(MODEL_LABELS)
 CHANGE_LABELS = {
     "blend with last_year_lift": "Blend with the baseline",
     "reconcile to region ridge forecast": "Match a region-level forecast",
@@ -41,8 +43,11 @@ CHANGE_LABELS = {
 }
 
 # Colours (validated for colour-blind separation): one fixed hue per model, actuals in ink,
-# and the first four categorical slots for feature families.
-MODEL_COLORS = {"lightgbm": "#2a78d6", "last_year_lift": "#eb6834", "last_year": "#1baf7a"}
+# and the first four categorical slots for feature families. Only three models are drawn, as
+# three hues is what stays distinct when every pair is compared; the second baseline
+# (same month last year) is in the results tables.
+MODEL_COLORS = {"lightgbm": "#2a78d6", "last_year_lift": "#eb6834", "pytorch": "#1baf7a"}
+RANGE_COLOR = "#cde2fb"
 FAMILY_COLORS = {"Calendar & policy": "#2a78d6", "Same drug's history": "#eb6834",
                  "Other drugs' history": "#1baf7a", "Weather": "#eda100"}
 OTHER_COLOR = "#c3c2b7"
@@ -176,7 +181,9 @@ def plot_forecast_vs_actual():
     """Small multiples: regional actual vs LightGBM and the lift baseline over the test period."""
     preds = {g: _result(f"{g}_predictions.csv") for g in F.GROUPS}
     scores = {g: _result(f"{g}_scores.csv") for g in F.GROUPS}
-    if any(p is None for p in preds.values()) or any(s is None for s in scores.values()):
+    specs = {g: M.RESULTS_DIR / f"{g}_model.json" for g in F.GROUPS}
+    if (any(p is None for p in preds.values()) or any(s is None for s in scores.values())
+            or not all(p.exists() for p in specs.values())):
         return None
     models = ["lightgbm", "last_year_lift"]
     fig, axes = plt.subplots(3, 1, figsize=(10, 8.5), sharex=True)
@@ -185,6 +192,9 @@ def plot_forecast_vs_actual():
         region = _regional(preds[group], [target, *models])
         dates = _dates(region.index)
         mape = scores[group].set_index("model")["regional_mape_pct"]
+        lo, hi = json.loads(specs[group].read_text())["quantiles"]["region"]
+        ax.fill_between(dates, region["lightgbm"] * (1 + lo), region["lightgbm"] * (1 + hi), color=RANGE_COLOR,
+                        linewidth=0, zorder=1, label="LightGBM 80% range")
         ax.plot(dates, region[target], color=INK, linewidth=2.4, label="Actual", zorder=3)
         for m in models:
             ax.plot(dates, region[m], color=MODEL_COLORS[m], marker="o", ms=4, markeredgecolor=SURFACE,
@@ -193,10 +203,14 @@ def plot_forecast_vs_actual():
                      f"baseline {mape['last_year_lift']:.1f}%", fontsize=10)
         ax.set_ylabel("Items per 1,000")
         ax.grid(axis="y")
+        inside = region[target].between(region["lightgbm"] * (1 + lo), region["lightgbm"] * (1 + hi))
+        ax.text(1, 1.02, f"{inside.sum()} of {len(region)} months inside the range", transform=ax.transAxes,
+                ha="right", va="bottom", fontsize=8, color=INK_2)
         for ym, row in region.iterrows():
             _record("forecast_vs_actual", group=group, year_month=int(ym), actual=round(row[target], 3),
-                    **{m: round(row[m], 3) for m in models})
-    axes[-1].legend(loc="upper center", bbox_to_anchor=(0.5, -0.18), ncols=3)
+                    **{m: round(row[m], 3) for m in models}, range_lo=round(row["lightgbm"] * (1 + lo), 3),
+                    range_hi=round(row["lightgbm"] * (1 + hi), 3))
+    axes[-1].legend(loc="upper center", bbox_to_anchor=(0.5, -0.18), ncols=4)
     _figure_header(fig, "Forecasts three months ahead vs what was prescribed",
                    f"Test period Mar 2024 - Aug 2026, never used for any choice · LightGBM retrained each "
                    f"month on data up to 3 months before · monthly error = mean absolute % error of the "
@@ -211,7 +225,7 @@ def plot_scores():
     scores = {g: _result(f"{g}_scores.csv") for g in F.GROUPS}
     if any(v is None for v in valid.values()) or any(s is None for s in scores.values()):
         return None
-    models = ["lightgbm", "last_year_lift", "last_year"]
+    models = MODELS
     fig, axes = plt.subplots(1, 2, figsize=(11, 3.8), sharey=True)
     y = np.arange(len(F.GROUPS))[::-1]
     for ax, part in zip(axes, ["valid", "test"]):
@@ -253,7 +267,7 @@ def plot_error_by_month():
     by_month = {g: _result(f"{g}_by_month.csv") for g in F.GROUPS}
     if any(b is None for b in by_month.values()):
         return None
-    models = ["lightgbm", "last_year_lift", "last_year"]
+    models = MODELS
     fig, axes = plt.subplots(1, 3, figsize=(12, 4))
     for ax, group in zip(axes, F.GROUPS):
         b = by_month[group].set_index("month")
@@ -274,7 +288,7 @@ def plot_error_by_month():
     fig.subplots_adjust(wspace=0.25)
     _figure_header(fig, "Practice-level error by calendar month",
                    "Test period Mar 2024 - Aug 2026 · each practice's forecast vs its own prescribing · "
-                   "LightGBM is lower in every month for all three drug groups", top=0.8)
+                   "both models retrained monthly", top=0.8)
     return _save(fig, "error_by_month")
 
 
@@ -286,7 +300,7 @@ def plot_top_features(n=10):
     fig, axes = plt.subplots(1, 3, figsize=(13, 4.6))
     shown = set()
     for ax, group in zip(axes, F.GROUPS):
-        gain = imp[group].set_index(imp[group].columns[0])["gain_pct"].head(n).iloc[::-1]
+        gain = imp[group].set_index(imp[group].columns[0])["shap_pct"].head(n).iloc[::-1]
         families = [_family(f, group) for f in gain.index]
         shown.update(families)
         ax.barh(gain.index, gain.to_numpy(), height=0.7,
@@ -294,9 +308,9 @@ def plot_top_features(n=10):
         for name, v, fam in zip(gain.index, gain.to_numpy(), families):
             ax.annotate(f"{v:.0f}%" if v >= 1 else f"{v:.1f}%", (v, name), xytext=(4, 0),
                         textcoords="offset points", va="center", fontsize=8, color=INK_2)
-            _record("top_features", group=group, feature=name, family=fam, gain_pct=v)
+            _record("top_features", group=group, feature=name, family=fam, shap_pct=v)
         ax.set_xlim(0, gain.max() * 1.2)
-        ax.set_xlabel("Share of total gain")
+        ax.set_xlabel("Share of mean |SHAP|")
         ax.grid(axis="x")
         ax.tick_params(axis="y", length=0, labelsize=8)
         ax.set_title(GROUP_LABELS[group], fontsize=10)
@@ -305,9 +319,47 @@ def plot_top_features(n=10):
     axes[1].legend(handles, legend, loc="upper center", bbox_to_anchor=(0.5, -0.16), ncols=len(legend))
     fig.subplots_adjust(wspace=0.55)
     _figure_header(fig, f"What the model uses: top {n} features",
-                   "LightGBM gain, model refit on 2014-2023 · month_cos = season · lag12_excess = last year's "
-                   "hay-fever lift for this month · winter_base = year-round use", top=0.82)
+                   "TreeSHAP on the test months, model refit on 2014-2023 · month_cos = season · lag12_excess = "
+                   "last year's hay-fever lift for this month · winter_base = year-round use", top=0.82)
     return _save(fig, "top_features")
+
+
+def plot_drivers_by_month():
+    """Stacked bars: average SHAP contribution of each feature family, by calendar month."""
+    shap = {g: _result(f"{g}_shap_by_month.csv") for g in F.GROUPS}
+    if any(s is None for s in shap.values()):
+        return None
+    families = [*FAMILY_COLORS, "Location & list size"]
+    colors = {**FAMILY_COLORS, "Location & list size": OTHER_COLOR}
+    fig, axes = plt.subplots(1, 3, figsize=(12.5, 4.2))
+    for ax, group in zip(axes, F.GROUPS):
+        s = shap[group].set_index("calendar_month")
+        by_family = pd.DataFrame({fam: s[[f for f in F.FORECAST_FEATURES if _family(f, group) == fam]].sum(axis=1)
+                                  for fam in families})
+        up, down = np.zeros(len(s)), np.zeros(len(s))
+        for fam in families:
+            v = by_family[fam].to_numpy()
+            bottom = np.where(v >= 0, up, down)
+            # 2px surface edge keeps the stacked segments apart
+            ax.bar(s.index, v, bottom=bottom, width=0.75, color=colors[fam], edgecolor=SURFACE, linewidth=1,
+                   label=fam)
+            up, down = up + np.clip(v, 0, None), down + np.clip(v, None, 0)
+            for month, value in zip(s.index, v):
+                _record("drivers_by_month", group=group, month=int(month), family=fam, shap_per1000=round(value, 3))
+        net = by_family.sum(axis=1).to_numpy()
+        ax.plot(s.index, net, color=INK, marker="o", ms=4, linewidth=1.5, label="net effect", zorder=3)
+        ax.axhline(0, color=AXIS, linewidth=1)
+        ax.set_xticks(range(1, 13), list("JFMAMJJASOND"))
+        ax.set_title(GROUP_LABELS[group], fontsize=10)
+        ax.grid(axis="y")
+    axes[0].set_ylabel("Items per 1,000 above or below\nthe model's average forecast")
+    handles, labels = axes[0].get_legend_handles_labels()
+    axes[1].legend(handles, labels, loc="upper center", bbox_to_anchor=(0.5, -0.12), ncols=6)
+    fig.subplots_adjust(wspace=0.25)
+    _figure_header(fig, "What drives the summer peak",
+                   "Average TreeSHAP contribution by calendar month, test period Mar 2024 - Aug 2026 · above 0 "
+                   "pushes the forecast above the model's average · line = all features together", top=0.8)
+    return _save(fig, "drivers_by_month")
 
 
 def plot_experiments():
@@ -374,6 +426,7 @@ def make_all():
         "scores": plot_scores,
         "error_by_month": plot_error_by_month,
         "top_features": plot_top_features,
+        "drivers_by_month": plot_drivers_by_month,
         "experiments": plot_experiments,
     }
     written = []

@@ -5,9 +5,10 @@ Usage:
 
 Steps, in order:
 1. src.io: prescribing, registered patients, weather and practice locations into dataset/.
-2. src.preprocess: join them into dataset/processed/model_table.csv.
+2. src.preprocess: join them with DuckDB SQL into dataset/processed/model_table.csv.
 3. src.feature: forecasting features (HORIZON months ahead) into dataset/processed/features.csv.
-Then run src.model (once per --target) and src.graph separately; see their docstrings.
+Then, separately (see their docstrings): src.model once per --target, src.evaluate,
+src.forecast, src.graph, and the API with uvicorn src.api:app.
 """
 
 import logging
