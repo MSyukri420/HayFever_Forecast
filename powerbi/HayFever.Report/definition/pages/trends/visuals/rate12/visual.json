@@ -1,0 +1,38 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.4.0/schema.json",
+  "name": "rate12",
+  "position": {
+    "x": 656,
+    "y": 84,
+    "z": 4000,
+    "width": 300,
+    "height": 100,
+    "tabOrder": 4000
+  },
+  "visual": {
+    "visualType": "card",
+    "query": {
+      "queryState": {
+        "Values": {
+          "projections": [
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "_Measures"
+                    }
+                  },
+                  "Property": "Rate, last 12 months"
+                }
+              },
+              "queryRef": "_Measures.Rate, last 12 months",
+              "nativeQueryRef": "Rate, last 12 months",
+              "displayName": "Monthly rate, last 12 months"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

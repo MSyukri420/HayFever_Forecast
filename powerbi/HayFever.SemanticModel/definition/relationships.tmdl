@@ -1,0 +1,51 @@
+relationship db68ec6c-abe6-5e73-aa13-3a8cf49b651d
+	fromColumn: fact_prescribing.practice_code
+	toColumn: dim_practice.practice_code
+
+relationship 3b0883ed-4001-537d-836d-5aff997d2ab5
+	fromColumn: fact_test_forecast.practice_code
+	toColumn: dim_practice.practice_code
+
+relationship d7072d53-6da9-526a-94c0-7a08db943856
+	fromColumn: fact_future_forecast.practice_code
+	toColumn: dim_practice.practice_code
+
+relationship abf8b041-0435-5742-b6bf-ff6b7a88ccf3
+	fromColumn: fact_prescribing.year_month
+	toColumn: dim_month.year_month
+
+relationship 94a8d046-81ac-5532-9610-361a511415b5
+	fromColumn: fact_test_forecast.year_month
+	toColumn: dim_month.year_month
+
+relationship ec643bde-0dfe-5452-ba61-86a217010228
+	fromColumn: fact_future_forecast.year_month
+	toColumn: dim_month.year_month
+
+relationship 1921c6c0-e3e2-59d9-a327-882be0127a5e
+	fromColumn: fact_regional.year_month
+	toColumn: dim_month.year_month
+
+relationship e89d6691-61c6-54f2-a617-1733bdf1393d
+	fromColumn: fact_error_spc.year_month
+	toColumn: dim_month.year_month
+
+relationship 6fa9efe7-30e7-5ece-9fa2-ef47e30e3cd6
+	fromColumn: fact_prescribing.drug_group
+	toColumn: dim_group.drug_group
+
+relationship d1abc2f6-aa0a-5b4a-bc3d-15729079ed71
+	fromColumn: fact_test_forecast.drug_group
+	toColumn: dim_group.drug_group
+
+relationship 37cda0fd-04a0-577c-9a48-fdcdf683a22b
+	fromColumn: fact_future_forecast.drug_group
+	toColumn: dim_group.drug_group
+
+relationship 7cf43815-20be-5269-98f0-2a0a03eb773a
+	fromColumn: fact_regional.drug_group
+	toColumn: dim_group.drug_group
+
+relationship ca61e637-2bf9-5e9c-9bba-9ac5ea157b3a
+	fromColumn: fact_error_spc.drug_group
+	toColumn: dim_group.drug_group

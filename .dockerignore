@@ -1,0 +1,6 @@
+# Only src/api.py and output/forecast/ go into the image
+*
+!requirements.txt
+!src/__init__.py
+!src/api.py
+!output/forecast/

@@ -1,0 +1,77 @@
+table dim_month
+	lineageTag: ff8c1894-9427-5a69-89c4-51ca7a4699e1
+	dataCategory: Time
+
+	column year_month
+		dataType: int64
+		formatString: 0
+		lineageTag: 39e6b5ce-9f0b-5284-9756-846945bd01e2
+		summarizeBy: none
+		sourceColumn: year_month
+
+		annotation SummarizationSetBy = User
+
+	column month_start
+		dataType: dateTime
+		isKey
+		formatString: mmm yyyy
+		lineageTag: 4efd4846-809b-5b74-9892-072118bf76cb
+		summarizeBy: none
+		sourceColumn: month_start
+
+		annotation SummarizationSetBy = User
+
+	column year
+		dataType: int64
+		formatString: 0
+		lineageTag: 615535f6-eae7-5752-86c9-41b50cabeade
+		summarizeBy: none
+		sourceColumn: year
+
+		annotation SummarizationSetBy = User
+
+	column month
+		dataType: int64
+		formatString: 0
+		lineageTag: 3bcda7b4-1691-5917-a29c-7d001f447b91
+		summarizeBy: none
+		sourceColumn: month
+
+		annotation SummarizationSetBy = User
+
+	column month_name
+		dataType: string
+		lineageTag: 3343f637-e6c4-5d31-b76e-5975bb2cbdaf
+		summarizeBy: none
+		sourceColumn: month_name
+		sortByColumn: month
+
+		annotation SummarizationSetBy = User
+
+	column peak_season
+		dataType: boolean
+		lineageTag: a0436063-6cca-593f-b3eb-5a821e5c1234
+		summarizeBy: none
+		sourceColumn: peak_season
+
+		annotation SummarizationSetBy = User
+
+	column period
+		dataType: string
+		lineageTag: de448215-0f19-5f60-b1f0-793f8c11a466
+		summarizeBy: none
+		sourceColumn: period
+
+		annotation SummarizationSetBy = User
+
+	partition dim_month = m
+		mode: import
+		source =
+				let
+				    Source = Csv.Document(File.Contents(DataFolder & "\dim_month.csv"), [Delimiter = ",", Encoding = 65001, QuoteStyle = QuoteStyle.Csv]),
+				    Headers = Table.PromoteHeaders(Source, [PromoteAllScalars = true]),
+				    Typed = Table.TransformColumnTypes(Headers, {{"year_month", Int64.Type}, {"month_start", type date}, {"year", Int64.Type}, {"month", Int64.Type}, {"month_name", type text}, {"peak_season", type logical}, {"period", type text}}, "en-US")
+				in
+				    Typed
+
+	annotation PBI_ResultType = Table

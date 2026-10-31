@@ -1,0 +1,103 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.4.0/schema.json",
+  "name": "signalTable",
+  "position": {
+    "x": 840,
+    "y": 458,
+    "z": 8000,
+    "width": 416,
+    "height": 246,
+    "tabOrder": 8000
+  },
+  "visual": {
+    "visualType": "tableEx",
+    "query": {
+      "queryState": {
+        "Values": {
+          "projections": [
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "dim_month"
+                    }
+                  },
+                  "Property": "month_start"
+                }
+              },
+              "queryRef": "dim_month.month_start",
+              "nativeQueryRef": "month_start",
+              "displayName": "Month"
+            },
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "fact_error_spc"
+                    }
+                  },
+                  "Property": "error_pct"
+                }
+              },
+              "queryRef": "fact_error_spc.error_pct",
+              "nativeQueryRef": "error_pct",
+              "displayName": "Error %"
+            },
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "fact_error_spc"
+                    }
+                  },
+                  "Property": "signal"
+                }
+              },
+              "queryRef": "fact_error_spc.signal",
+              "nativeQueryRef": "signal",
+              "displayName": "Signal"
+            }
+          ]
+        }
+      }
+    },
+    "visualContainerObjects": {
+      "title": [
+        {
+          "properties": {
+            "show": {
+              "expr": {
+                "Literal": {
+                  "Value": "true"
+                }
+              }
+            },
+            "text": {
+              "expr": {
+                "Literal": {
+                  "Value": "'Monthly error and SPC signal'"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "subTitle": [
+        {
+          "properties": {
+            "show": {
+              "expr": {
+                "Literal": {
+                  "Value": "false"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

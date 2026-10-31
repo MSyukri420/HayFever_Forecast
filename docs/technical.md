@@ -234,7 +234,25 @@ uvicorn src.api:app
 
 # charts and figure_data.csv into docs/figures/
 python -m src.graph
+
+# star schema for Power BI into output/powerbi/ (after all three src.model runs and src.forecast)
+python -m src.export
+
+# rewrite the Power BI project in powerbi/ (model, measures and pages); then open HayFever.pbip and Refresh
+python -m src.pbip
 ```
+
+The API also runs in Docker. The image holds only the API and the forecast files (pandas, FastAPI, uvicorn; no LightGBM or PyTorch), so it is small and a new forecast means a new image:
+
+```bash
+python -m src.forecast
+docker build -t hayfever-api .
+docker run -p 8000:8000 hayfever-api      # then http://127.0.0.1:8000/docs
+```
+
+GitHub Actions ([`.github/workflows/tests.yml`](../.github/workflows/tests.yml)) runs the tests on every push and pull request, with the versions pinned in `requirements.txt`. The table-build, keep-rule and API tests run there. The leakage tests need the downloaded data, so they skip in CI and run locally after `src.run_all`.
+
+The Power BI report, its pages, measures and the SPC chart of forecast error are described in [powerbi.md](powerbi.md).
 
 API endpoints:
 
@@ -272,6 +290,8 @@ src/
   evaluate.py       block-bootstrap ranges for the gains, interval coverage
   forecast.py       the deployed model: train on everything, forecast the next 3 months
   api.py            FastAPI service for the forecasts
+  export.py         DuckDB SQL: star schema and SPC table for Power BI
+  pbip.py           writes the Power BI project: TMDL model, DAX measures, PBIR pages
   experiments.py    experiment log and the keep rule
   tune.py           Optuna search on the 2021-22 folds
   graph.py          charts for the README
@@ -283,7 +303,11 @@ tests/
   test_api.py           API responses on a tiny forecast folder
 docs/
   technical.md      this file
-  figures/          charts and figure_data.csv (every plotted number)
+  powerbi.md        the Power BI report: pages, tables, model, DAX measures, the SPC chart
+  figures/          charts, Power BI screenshots and figure_data.csv (every plotted number)
+powerbi/            the Power BI project (HayFever.pbip), written by src.pbip
+Dockerfile          the API image (with .dockerignore)
+.github/workflows/  tests on every push
 
 produced by the scripts (not in git):
 dataset/
@@ -292,6 +316,7 @@ dataset/
 output/
   results/          per-group scores, predictions, importance, breakdowns, the model choice
   forecast/         the deployed forecasts, served by the API
+  powerbi/          the star schema for the report
   experiments.csv   every logged validation run
 ```
 
@@ -311,6 +336,8 @@ output/
 
 `output/forecast/`, after `python -m src.forecast`: `forecasts.csv` (per practice, group and month: rate, items, 80% range, top 3 SHAP drivers), `regional.csv` (West Midlands totals with ranges) and `meta.json`. The API serves these.
 
+`output/powerbi/`, after `python -m src.export`: three dimension tables (practice, month, drug group), four fact tables (prescribing history, test forecasts, next-3-month forecasts, regional totals) and `fact_error_spc.csv`, the control chart of the monthly regional error. Columns are listed in [powerbi.md](powerbi.md#tables).
+
 Charts in [`figures/`](figures/): [forecast vs actual](figures/forecast_vs_actual.png), [regional rates](figures/regional_rates.png), [scores](figures/scores.png), [error by month](figures/error_by_month.png), [top features](figures/top_features.png), [drivers by month](figures/drivers_by_month.png), [ideas tried](figures/experiments.png), and [`figure_data.csv`](figures/figure_data.csv). The charts show three models (LightGBM, PyTorch and the lift baseline), because three colours are what stays distinct for colour-blind readers when every pair is compared. The `last_year` baseline is in the tables.
 
 ## Version history
@@ -321,7 +348,8 @@ Charts in [`figures/`](figures/): [forecast vs actual](figures/forecast_vs_actua
   - 80% prediction intervals, checked for coverage on the test
   - block-bootstrap ranges for every gain
   - SHAP explanations
-  - a deployed forecast for the next 3 months, served by a FastAPI API
+  - a deployed forecast for the next 3 months, served by a FastAPI API in a Docker image, with tests run by GitHub Actions
+  - a four-page Power BI report on a star schema from DuckDB SQL, with an SPC chart of the forecast error
 
   The LightGBM results did not change.
 - **v2.** The model is chosen on three validation years (2021–2023), not one. Ideas are logged and kept only if they win in every year by more than 4%. The three-year choice changed two of the chosen variants: antihistamines from `lgb_poisson` to `lgb_l2_excess`, and eye drops from `lgb_l2_excess` to `lgb_l2_ratio`. Five ideas were tried under this rule and none was kept. One of them, Optuna tuning for antihistamines, did pass the rule at first. Re-run over five random seeds, most of its gain disappeared and 2023, the year the search never saw, got worse. So it was rejected, and any candidate is now checked on several seeds before it is kept.

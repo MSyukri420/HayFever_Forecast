@@ -1,0 +1,4 @@
+expression DataFolder = "D:\Github Repo\HayFever_Forecast\output\powerbi" meta [IsParameterQuery = true, Type = "Text", IsParameterQueryRequired = true]
+	lineageTag: e1b35026-c2d4-5c94-9b47-365c46628238
+
+	annotation PBI_ResultType = Text

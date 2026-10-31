@@ -1,0 +1,193 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.4.0/schema.json",
+  "name": "futureTable",
+  "position": {
+    "x": 24,
+    "y": 456,
+    "z": 5000,
+    "width": 1232,
+    "height": 248,
+    "tabOrder": 5000
+  },
+  "visual": {
+    "visualType": "tableEx",
+    "query": {
+      "queryState": {
+        "Values": {
+          "projections": [
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "dim_practice"
+                    }
+                  },
+                  "Property": "practice_code"
+                }
+              },
+              "queryRef": "dim_practice.practice_code",
+              "nativeQueryRef": "practice_code",
+              "displayName": "Practice"
+            },
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "dim_month"
+                    }
+                  },
+                  "Property": "month_start"
+                }
+              },
+              "queryRef": "dim_month.month_start",
+              "nativeQueryRef": "month_start",
+              "displayName": "Month"
+            },
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "fact_future_forecast"
+                    }
+                  },
+                  "Property": "forecast"
+                }
+              },
+              "queryRef": "fact_future_forecast.forecast",
+              "nativeQueryRef": "forecast",
+              "displayName": "Rate per 1,000"
+            },
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "fact_future_forecast"
+                    }
+                  },
+                  "Property": "lower"
+                }
+              },
+              "queryRef": "fact_future_forecast.lower",
+              "nativeQueryRef": "lower",
+              "displayName": "Low (80%)"
+            },
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "fact_future_forecast"
+                    }
+                  },
+                  "Property": "upper"
+                }
+              },
+              "queryRef": "fact_future_forecast.upper",
+              "nativeQueryRef": "upper",
+              "displayName": "High (80%)"
+            },
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "fact_future_forecast"
+                    }
+                  },
+                  "Property": "items"
+                }
+              },
+              "queryRef": "fact_future_forecast.items",
+              "nativeQueryRef": "items",
+              "displayName": "Items"
+            },
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "fact_future_forecast"
+                    }
+                  },
+                  "Property": "driver_1"
+                }
+              },
+              "queryRef": "fact_future_forecast.driver_1",
+              "nativeQueryRef": "driver_1",
+              "displayName": "Top driver"
+            },
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "fact_future_forecast"
+                    }
+                  },
+                  "Property": "driver_2"
+                }
+              },
+              "queryRef": "fact_future_forecast.driver_2",
+              "nativeQueryRef": "driver_2",
+              "displayName": "Second"
+            },
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "fact_future_forecast"
+                    }
+                  },
+                  "Property": "driver_3"
+                }
+              },
+              "queryRef": "fact_future_forecast.driver_3",
+              "nativeQueryRef": "driver_3",
+              "displayName": "Third"
+            }
+          ]
+        }
+      }
+    },
+    "visualContainerObjects": {
+      "title": [
+        {
+          "properties": {
+            "show": {
+              "expr": {
+                "Literal": {
+                  "Value": "true"
+                }
+              }
+            },
+            "text": {
+              "expr": {
+                "Literal": {
+                  "Value": "'Forecast per practice, with the 3 largest SHAP drivers'"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "subTitle": [
+        {
+          "properties": {
+            "show": {
+              "expr": {
+                "Literal": {
+                  "Value": "false"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

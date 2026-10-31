@@ -1,0 +1,38 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.4.0/schema.json",
+  "name": "baseline",
+  "position": {
+    "x": 336,
+    "y": 84,
+    "z": 3000,
+    "width": 296,
+    "height": 100,
+    "tabOrder": 3000
+  },
+  "visual": {
+    "visualType": "card",
+    "query": {
+      "queryState": {
+        "Values": {
+          "projections": [
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "_Measures"
+                    }
+                  },
+                  "Property": "Baseline monthly error"
+                }
+              },
+              "queryRef": "_Measures.Baseline monthly error",
+              "nativeQueryRef": "Baseline monthly error",
+              "displayName": "Baseline monthly error"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,22 @@
+model Model
+	culture: en-GB
+	defaultPowerBIDataSourceVersion: powerBI_V3
+	discourageImplicitMeasures
+	sourceQueryCulture: en-GB
+	dataAccessOptions
+		legacyRedirects
+		returnErrorValuesAsNull
+
+annotation __PBI_TimeIntelligenceEnabled = 0
+
+annotation PBI_QueryOrder = ["DataFolder", "_Measures", "dim_practice", "dim_month", "dim_group", "fact_prescribing", "fact_test_forecast", "fact_future_forecast", "fact_regional", "fact_error_spc"]
+
+ref table _Measures
+ref table dim_practice
+ref table dim_month
+ref table dim_group
+ref table fact_prescribing
+ref table fact_test_forecast
+ref table fact_future_forecast
+ref table fact_regional
+ref table fact_error_spc

@@ -1,0 +1,100 @@
+table dim_practice
+	lineageTag: 131c8056-4436-590e-9e83-3dfd4e8fadae
+
+	column practice_code
+		dataType: string
+		lineageTag: 9ded7610-00e1-5188-b205-aa67aa58b04f
+		summarizeBy: none
+		sourceColumn: practice_code
+
+		annotation SummarizationSetBy = User
+
+	column postcode
+		dataType: string
+		lineageTag: a20146e5-ea3f-5fbe-b594-f00a2bff18d2
+		summarizeBy: none
+		sourceColumn: postcode
+
+		annotation SummarizationSetBy = User
+
+	column town
+		dataType: string
+		dataCategory: City
+		lineageTag: fe0fe467-a201-53e8-865d-619791dcb759
+		summarizeBy: none
+		sourceColumn: town
+
+		annotation SummarizationSetBy = User
+
+	column lat
+		dataType: double
+		dataCategory: Latitude
+		lineageTag: 54a3cb5d-a294-56ef-aa0b-3e4bcb81b997
+		summarizeBy: none
+		sourceColumn: lat
+
+		annotation SummarizationSetBy = User
+
+	column lon
+		dataType: double
+		dataCategory: Longitude
+		lineageTag: d5763694-5cef-546e-860a-e8eef46af8c0
+		summarizeBy: none
+		sourceColumn: lon
+
+		annotation SummarizationSetBy = User
+
+	column patients_latest
+		dataType: int64
+		formatString: #,0
+		lineageTag: ee7bc258-0ccd-5891-8f89-c449f4422cae
+		summarizeBy: none
+		sourceColumn: patients_latest
+
+		annotation SummarizationSetBy = User
+
+	column size_band
+		dataType: string
+		lineageTag: 0dc95227-aada-5777-b976-e35560bde488
+		summarizeBy: none
+		sourceColumn: size_band
+
+		annotation SummarizationSetBy = User
+
+	column first_month
+		dataType: int64
+		formatString: 0
+		lineageTag: 04f969d3-f0dc-5630-ab81-076d5ffbb788
+		summarizeBy: none
+		sourceColumn: first_month
+
+		annotation SummarizationSetBy = User
+
+	column last_month
+		dataType: int64
+		formatString: 0
+		lineageTag: 54f3c0c8-ee79-5b0b-8a9f-b78eb3d0fb69
+		summarizeBy: none
+		sourceColumn: last_month
+
+		annotation SummarizationSetBy = User
+
+	column active
+		dataType: boolean
+		lineageTag: 247145e9-d186-59f5-848a-95109d451e31
+		summarizeBy: none
+		sourceColumn: active
+
+		annotation SummarizationSetBy = User
+
+	partition dim_practice = m
+		mode: import
+		source =
+				let
+				    Source = Csv.Document(File.Contents(DataFolder & "\dim_practice.csv"), [Delimiter = ",", Encoding = 65001, QuoteStyle = QuoteStyle.Csv]),
+				    Headers = Table.PromoteHeaders(Source, [PromoteAllScalars = true]),
+				    Typed = Table.TransformColumnTypes(Headers, {{"practice_code", type text}, {"postcode", type text}, {"town", type text}, {"lat", type number}, {"lon", type number}, {"patients_latest", Int64.Type}, {"size_band", type text}, {"first_month", Int64.Type}, {"last_month", Int64.Type}, {"active", type logical}}, "en-US")
+				in
+				    Typed
+
+	annotation PBI_ResultType = Table

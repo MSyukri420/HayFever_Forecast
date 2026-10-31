@@ -1,0 +1,53 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.4.0/schema.json",
+  "name": "practiceSlicer",
+  "position": {
+    "x": 840,
+    "y": 210,
+    "z": 4000,
+    "width": 416,
+    "height": 64,
+    "tabOrder": 4000
+  },
+  "visual": {
+    "visualType": "slicer",
+    "query": {
+      "queryState": {
+        "Values": {
+          "projections": [
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "dim_practice"
+                    }
+                  },
+                  "Property": "practice_code"
+                }
+              },
+              "queryRef": "dim_practice.practice_code",
+              "nativeQueryRef": "practice_code",
+              "displayName": "Practice"
+            }
+          ]
+        }
+      }
+    },
+    "objects": {
+      "data": [
+        {
+          "properties": {
+            "mode": {
+              "expr": {
+                "Literal": {
+                  "Value": "'Dropdown'"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

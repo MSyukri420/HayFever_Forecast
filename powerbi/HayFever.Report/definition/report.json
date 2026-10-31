@@ -1,0 +1,51 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/report/3.0.0/schema.json",
+  "themeCollection": {
+    "baseTheme": {
+      "name": "Fluent2-CY26SU10",
+      "reportVersionAtImport": {
+        "visual": "2.4.0",
+        "page": "2.0.0",
+        "report": "3.0.0"
+      },
+      "type": "SharedResources"
+    },
+    "customTheme": {
+      "name": "HayFever.json",
+      "reportVersionAtImport": {
+        "visual": "2.4.0",
+        "page": "2.0.0",
+        "report": "3.0.0"
+      },
+      "type": "RegisteredResources"
+    }
+  },
+  "resourcePackages": [
+    {
+      "name": "SharedResources",
+      "type": "SharedResources",
+      "items": [
+        {
+          "name": "Fluent2-CY26SU10",
+          "path": "BaseThemes/Fluent2-CY26SU10.json",
+          "type": "BaseTheme"
+        }
+      ]
+    },
+    {
+      "name": "RegisteredResources",
+      "type": "RegisteredResources",
+      "items": [
+        {
+          "name": "HayFever.json",
+          "path": "HayFever.json",
+          "type": "CustomTheme"
+        }
+      ]
+    }
+  ],
+  "settings": {
+    "useStylableVisualContainerHeader": true,
+    "defaultDrillFilterOtherVisuals": true
+  }
+}

@@ -1,0 +1,130 @@
+table fact_test_forecast
+	lineageTag: fd2de31b-5c2b-545f-8454-6948a072c311
+
+	column practice_code
+		dataType: string
+		isHidden
+		lineageTag: 7de1809e-3474-53ed-9eca-5347bd282d85
+		summarizeBy: none
+		sourceColumn: practice_code
+
+		annotation SummarizationSetBy = User
+
+	column year_month
+		dataType: int64
+		isHidden
+		lineageTag: c62e40bb-293a-5b3a-a474-ae83a69394fa
+		summarizeBy: none
+		sourceColumn: year_month
+
+		annotation SummarizationSetBy = User
+
+	column drug_group
+		dataType: string
+		isHidden
+		lineageTag: 74f3f86b-6cf8-5ebf-b717-084314a4d11f
+		summarizeBy: none
+		sourceColumn: drug_group
+
+		annotation SummarizationSetBy = User
+
+	column patients
+		dataType: int64
+		formatString: #,0
+		lineageTag: dbb400bc-6cf3-58d8-b79f-e03c70ada584
+		summarizeBy: none
+		sourceColumn: patients
+
+		annotation SummarizationSetBy = User
+
+	column actual
+		dataType: double
+		formatString: 0.00
+		lineageTag: abb3b90c-1e73-5f62-b5fc-4f88641850d1
+		summarizeBy: none
+		sourceColumn: actual
+
+		annotation SummarizationSetBy = User
+
+	column lightgbm
+		dataType: double
+		formatString: 0.00
+		lineageTag: e1272cba-ff01-5c7e-87f3-3903734a0897
+		summarizeBy: none
+		sourceColumn: lightgbm
+
+		annotation SummarizationSetBy = User
+
+	column lower
+		dataType: double
+		formatString: 0.00
+		lineageTag: dc31bbcf-4575-5dcd-b482-23e8179d89bb
+		summarizeBy: none
+		sourceColumn: lower
+
+		annotation SummarizationSetBy = User
+
+	column upper
+		dataType: double
+		formatString: 0.00
+		lineageTag: d8b7e3be-beb0-5544-8504-abe40b75c096
+		summarizeBy: none
+		sourceColumn: upper
+
+		annotation SummarizationSetBy = User
+
+	column pytorch
+		dataType: double
+		formatString: 0.00
+		lineageTag: 8456e6f6-be28-5dff-b334-d3c7f927ea09
+		summarizeBy: none
+		sourceColumn: pytorch
+
+		annotation SummarizationSetBy = User
+
+	column last_year_lift
+		dataType: double
+		formatString: 0.00
+		lineageTag: de5a1c4e-67b9-5846-b1d2-0d18835bdfd1
+		summarizeBy: none
+		sourceColumn: last_year_lift
+
+		annotation SummarizationSetBy = User
+
+	column last_year
+		dataType: double
+		formatString: 0.00
+		lineageTag: 0710487b-513c-538f-9988-2796782df107
+		summarizeBy: none
+		sourceColumn: last_year
+
+		annotation SummarizationSetBy = User
+
+	column inside_range
+		dataType: boolean
+		lineageTag: 32419f59-2415-5f6d-a343-ff3f5f96e07b
+		summarizeBy: none
+		sourceColumn: inside_range
+
+		annotation SummarizationSetBy = User
+
+	column abs_error
+		dataType: double
+		formatString: 0.00
+		lineageTag: 30e775ce-8e24-5bb2-aaf3-a077fc73f241
+		summarizeBy: none
+		sourceColumn: abs_error
+
+		annotation SummarizationSetBy = User
+
+	partition fact_test_forecast = m
+		mode: import
+		source =
+				let
+				    Source = Csv.Document(File.Contents(DataFolder & "\fact_test_forecast.csv"), [Delimiter = ",", Encoding = 65001, QuoteStyle = QuoteStyle.Csv]),
+				    Headers = Table.PromoteHeaders(Source, [PromoteAllScalars = true]),
+				    Typed = Table.TransformColumnTypes(Headers, {{"practice_code", type text}, {"year_month", Int64.Type}, {"drug_group", type text}, {"patients", Int64.Type}, {"actual", type number}, {"lightgbm", type number}, {"lower", type number}, {"upper", type number}, {"pytorch", type number}, {"last_year_lift", type number}, {"last_year", type number}, {"inside_range", type logical}, {"abs_error", type number}}, "en-US")
+				in
+				    Typed
+
+	annotation PBI_ResultType = Table

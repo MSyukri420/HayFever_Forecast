@@ -1,0 +1,38 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.4.0/schema.json",
+  "name": "next3",
+  "position": {
+    "x": 840,
+    "y": 84,
+    "z": 3000,
+    "width": 416,
+    "height": 110,
+    "tabOrder": 3000
+  },
+  "visual": {
+    "visualType": "card",
+    "query": {
+      "queryState": {
+        "Values": {
+          "projections": [
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "_Measures"
+                    }
+                  },
+                  "Property": "Forecast items, next 3 months"
+                }
+              },
+              "queryRef": "_Measures.Forecast items, next 3 months",
+              "nativeQueryRef": "Forecast items, next 3 months",
+              "displayName": "Items forecast, Sep - Nov 2026"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

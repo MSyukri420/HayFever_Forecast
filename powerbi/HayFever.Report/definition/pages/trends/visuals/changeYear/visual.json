@@ -1,0 +1,38 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.4.0/schema.json",
+  "name": "changeYear",
+  "position": {
+    "x": 340,
+    "y": 84,
+    "z": 3000,
+    "width": 300,
+    "height": 100,
+    "tabOrder": 3000
+  },
+  "visual": {
+    "visualType": "card",
+    "query": {
+      "queryState": {
+        "Values": {
+          "projections": [
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "_Measures"
+                    }
+                  },
+                  "Property": "Change vs a year earlier"
+                }
+              },
+              "queryRef": "_Measures.Change vs a year earlier",
+              "nativeQueryRef": "Change vs a year earlier",
+              "displayName": "vs Aug 2025"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

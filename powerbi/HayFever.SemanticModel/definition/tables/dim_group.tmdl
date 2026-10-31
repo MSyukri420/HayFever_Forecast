@@ -1,0 +1,38 @@
+table dim_group
+	lineageTag: 5f69a6cc-e6c4-5cb7-9bbf-24c85c3b4fdb
+
+	column drug_group
+		dataType: string
+		lineageTag: 248c37cf-c592-53ba-9911-66f7ed8ca8c5
+		summarizeBy: none
+		sourceColumn: drug_group
+
+		annotation SummarizationSetBy = User
+
+	column label
+		dataType: string
+		lineageTag: a25eec5f-a52d-55c5-9cbf-4e6ec448f68b
+		summarizeBy: none
+		sourceColumn: label
+
+		annotation SummarizationSetBy = User
+
+	column bnf_code
+		dataType: string
+		lineageTag: b2117c9a-743a-5e1e-91c9-7be37125b1c2
+		summarizeBy: none
+		sourceColumn: bnf_code
+
+		annotation SummarizationSetBy = User
+
+	partition dim_group = m
+		mode: import
+		source =
+				let
+				    Source = Csv.Document(File.Contents(DataFolder & "\dim_group.csv"), [Delimiter = ",", Encoding = 65001, QuoteStyle = QuoteStyle.Csv]),
+				    Headers = Table.PromoteHeaders(Source, [PromoteAllScalars = true]),
+				    Typed = Table.TransformColumnTypes(Headers, {{"drug_group", type text}, {"label", type text}, {"bnf_code", type text}}, "en-US")
+				in
+				    Typed
+
+	annotation PBI_ResultType = Table

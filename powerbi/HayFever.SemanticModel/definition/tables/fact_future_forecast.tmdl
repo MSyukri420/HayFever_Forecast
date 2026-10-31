@@ -1,0 +1,110 @@
+table fact_future_forecast
+	lineageTag: eea9d4f6-2aa2-5038-8374-8cae6c364aa0
+
+	column practice_code
+		dataType: string
+		isHidden
+		lineageTag: a3c59428-2c56-5c5b-8eec-8f0e191ed8d4
+		summarizeBy: none
+		sourceColumn: practice_code
+
+		annotation SummarizationSetBy = User
+
+	column year_month
+		dataType: int64
+		isHidden
+		lineageTag: 6c649058-4f93-5d67-9d8e-c6bacec77076
+		summarizeBy: none
+		sourceColumn: year_month
+
+		annotation SummarizationSetBy = User
+
+	column drug_group
+		dataType: string
+		isHidden
+		lineageTag: f0b562ce-fdc5-5f27-bf1d-319d61781b31
+		summarizeBy: none
+		sourceColumn: drug_group
+
+		annotation SummarizationSetBy = User
+
+	column patients
+		dataType: int64
+		formatString: #,0
+		lineageTag: f1be510b-70d9-5693-afd0-2fc4bd7eda46
+		summarizeBy: none
+		sourceColumn: patients
+
+		annotation SummarizationSetBy = User
+
+	column forecast
+		dataType: double
+		formatString: 0.00
+		lineageTag: 7122d7a0-8a2a-5803-8961-bb789e0e0fda
+		summarizeBy: none
+		sourceColumn: forecast
+
+		annotation SummarizationSetBy = User
+
+	column lower
+		dataType: double
+		formatString: 0.00
+		lineageTag: 28154694-7531-5481-a555-91e81888152d
+		summarizeBy: none
+		sourceColumn: lower
+
+		annotation SummarizationSetBy = User
+
+	column upper
+		dataType: double
+		formatString: 0.00
+		lineageTag: b9a1d852-28ed-5532-aee5-f14339e6e2a3
+		summarizeBy: none
+		sourceColumn: upper
+
+		annotation SummarizationSetBy = User
+
+	column items
+		dataType: double
+		formatString: #,0.0
+		lineageTag: a96e9348-e421-5bdb-a790-20e1646d6273
+		summarizeBy: none
+		sourceColumn: items
+
+		annotation SummarizationSetBy = User
+
+	column driver_1
+		dataType: string
+		lineageTag: a820ee0c-c489-52ac-aafa-7dcdbdf0dbe8
+		summarizeBy: none
+		sourceColumn: driver_1
+
+		annotation SummarizationSetBy = User
+
+	column driver_2
+		dataType: string
+		lineageTag: 3a5e380c-dcc9-5abb-b0e4-08b4a291a0ea
+		summarizeBy: none
+		sourceColumn: driver_2
+
+		annotation SummarizationSetBy = User
+
+	column driver_3
+		dataType: string
+		lineageTag: ef0b8b11-4dcf-513a-a336-11a52acb5125
+		summarizeBy: none
+		sourceColumn: driver_3
+
+		annotation SummarizationSetBy = User
+
+	partition fact_future_forecast = m
+		mode: import
+		source =
+				let
+				    Source = Csv.Document(File.Contents(DataFolder & "\fact_future_forecast.csv"), [Delimiter = ",", Encoding = 65001, QuoteStyle = QuoteStyle.Csv]),
+				    Headers = Table.PromoteHeaders(Source, [PromoteAllScalars = true]),
+				    Typed = Table.TransformColumnTypes(Headers, {{"practice_code", type text}, {"year_month", Int64.Type}, {"drug_group", type text}, {"patients", Int64.Type}, {"forecast", type number}, {"lower", type number}, {"upper", type number}, {"items", type number}, {"driver_1", type text}, {"driver_2", type text}, {"driver_3", type text}}, "en-US")
+				in
+				    Typed
+
+	annotation PBI_ResultType = Table

@@ -1,0 +1,38 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.4.0/schema.json",
+  "name": "rateLatest",
+  "position": {
+    "x": 24,
+    "y": 84,
+    "z": 2000,
+    "width": 300,
+    "height": 100,
+    "tabOrder": 2000
+  },
+  "visual": {
+    "visualType": "card",
+    "query": {
+      "queryState": {
+        "Values": {
+          "projections": [
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "_Measures"
+                    }
+                  },
+                  "Property": "Rate, latest month"
+                }
+              },
+              "queryRef": "_Measures.Rate, latest month",
+              "nativeQueryRef": "Rate, latest month",
+              "displayName": "Rate, Aug 2026"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

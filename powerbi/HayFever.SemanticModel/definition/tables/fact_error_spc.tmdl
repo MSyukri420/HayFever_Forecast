@@ -1,0 +1,85 @@
+table fact_error_spc
+	lineageTag: 74dbb0e3-283c-5b4e-b754-8dcdcdbe4efb
+
+	column drug_group
+		dataType: string
+		isHidden
+		lineageTag: 301dc5f0-b83c-5765-9d1a-36df0bacc02a
+		summarizeBy: none
+		sourceColumn: drug_group
+
+		annotation SummarizationSetBy = User
+
+	column year_month
+		dataType: int64
+		isHidden
+		lineageTag: 5e15b23a-bdf2-5ebc-9d92-d81a65bf7529
+		summarizeBy: none
+		sourceColumn: year_month
+
+		annotation SummarizationSetBy = User
+
+	column error_pct
+		dataType: double
+		formatString: 0.00
+		lineageTag: 93518367-3a20-5e3b-8cae-d3be106bdac8
+		summarizeBy: none
+		sourceColumn: error_pct
+
+		annotation SummarizationSetBy = User
+
+	column moving_range
+		dataType: double
+		formatString: 0.00
+		lineageTag: 10e227b7-1059-5ab7-88b5-05537941764a
+		summarizeBy: none
+		sourceColumn: moving_range
+
+		annotation SummarizationSetBy = User
+
+	column mean
+		dataType: double
+		formatString: 0.00
+		lineageTag: d6fa1bd7-7c80-5c12-aa28-c9b171975e49
+		summarizeBy: none
+		sourceColumn: mean
+
+		annotation SummarizationSetBy = User
+
+	column upper_limit
+		dataType: double
+		formatString: 0.00
+		lineageTag: 0a2c26da-de0e-5ee8-a304-ff0f7a612951
+		summarizeBy: none
+		sourceColumn: upper_limit
+
+		annotation SummarizationSetBy = User
+
+	column lower_limit
+		dataType: double
+		formatString: 0.00
+		lineageTag: a80243cf-d6bf-5a4b-b7f6-e3b89804336e
+		summarizeBy: none
+		sourceColumn: lower_limit
+
+		annotation SummarizationSetBy = User
+
+	column signal
+		dataType: string
+		lineageTag: ee601163-a3b4-5921-873c-e82ac0a40bcb
+		summarizeBy: none
+		sourceColumn: signal
+
+		annotation SummarizationSetBy = User
+
+	partition fact_error_spc = m
+		mode: import
+		source =
+				let
+				    Source = Csv.Document(File.Contents(DataFolder & "\fact_error_spc.csv"), [Delimiter = ",", Encoding = 65001, QuoteStyle = QuoteStyle.Csv]),
+				    Headers = Table.PromoteHeaders(Source, [PromoteAllScalars = true]),
+				    Typed = Table.TransformColumnTypes(Headers, {{"drug_group", type text}, {"year_month", Int64.Type}, {"error_pct", type number}, {"moving_range", type number}, {"mean", type number}, {"upper_limit", type number}, {"lower_limit", type number}, {"signal", type text}}, "en-US")
+				in
+				    Typed
+
+	annotation PBI_ResultType = Table

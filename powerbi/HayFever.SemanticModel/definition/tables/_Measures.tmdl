@@ -1,0 +1,150 @@
+table _Measures
+	lineageTag: bb4ede8c-ad0c-5c64-961c-61d9dbeed996
+
+	measure Items = SUM ( fact_prescribing[items] )
+		formatString: #,0
+		lineageTag: 58fdbd1c-e8d4-5193-a3c3-e99b4acf6225
+
+	measure Patients = DIVIDE ( SUM ( fact_prescribing[patients] ), DISTINCTCOUNT ( fact_prescribing[drug_group] ) )
+		formatString: #,0
+		lineageTag: f6c0953b-2935-506d-adba-d495e83b7269
+
+	measure 'Rate per 1,000' = DIVIDE ( [Items], [Patients] ) * 1000
+		formatString: 0.0
+		lineageTag: 78f5beba-93d0-5550-b888-ece8ff83dfa5
+
+	measure 'Latest month' = CALCULATE ( MAX ( fact_prescribing[year_month] ), REMOVEFILTERS ( dim_month ) )
+		formatString: 0
+		lineageTag: 3d5ad298-8e5a-5c6e-9370-61ee6e05d776
+
+	measure 'Rate, latest month' =
+			VAR m = [Latest month]
+			RETURN
+			    CALCULATE ( [Rate per 1,000], REMOVEFILTERS ( dim_month ), dim_month[year_month] = m )
+		formatString: 0.0
+		lineageTag: 9b551571-9f48-556f-85eb-3d78bcdd7bad
+
+	measure 'Rate, a year earlier' =
+			VAR m = [Latest month] - 100
+			RETURN
+			    CALCULATE ( [Rate per 1,000], REMOVEFILTERS ( dim_month ), dim_month[year_month] = m )
+		formatString: 0.0
+		lineageTag: 55f29259-4fc4-53af-8c2c-cb58300ff160
+
+	measure 'Change vs a year earlier' = DIVIDE ( [Rate, latest month] - [Rate, a year earlier], [Rate, a year earlier] )
+		formatString: +0.0%;-0.0%;0.0%
+		lineageTag: b81c09d9-a5b1-5b28-81eb-0f2902039e74
+
+	measure 'Rate, last 12 months' =
+			VAR m = [Latest month]
+			RETURN
+			    CALCULATE ( [Rate per 1,000], REMOVEFILTERS ( dim_month ), dim_month[year_month] > m - 100 )
+		formatString: 0.0
+		lineageTag: 9d8101bb-9176-5e4f-94ff-de45c3683bc6
+
+	measure 'June rise over winter' =
+			CALCULATE ( [Rate per 1,000], dim_month[month] = 6 )
+			    - CALCULATE ( [Rate per 1,000], dim_month[month] IN { 1, 2 } )
+		formatString: 0.0
+		lineageTag: afb1d77d-93a8-5a36-a540-c71941bc882b
+
+	measure Latitude = AVERAGE ( dim_practice[lat] )
+		formatString: 0.000
+		lineageTag: 6160a8a2-f572-5ba7-84be-c7f0810fdfe7
+
+	measure Longitude = AVERAGE ( dim_practice[lon] )
+		formatString: 0.000
+		lineageTag: 824f88c6-6264-539d-8297-9155abc8d32d
+
+	measure 'Actual items (test)' = SUMX ( fact_test_forecast, fact_test_forecast[actual] * fact_test_forecast[patients] / 1000 )
+		formatString: #,0
+		lineageTag: 97c2bfe0-6d32-5f41-b86c-3647e78c556f
+
+	measure 'Forecast items (test)' = SUMX ( fact_test_forecast, fact_test_forecast[lightgbm] * fact_test_forecast[patients] / 1000 )
+		formatString: #,0
+		lineageTag: 0d1a447b-a063-56bd-9753-caec1398ab64
+
+	measure 'Baseline items (test)' = SUMX ( fact_test_forecast, fact_test_forecast[last_year_lift] * fact_test_forecast[patients] / 1000 )
+		formatString: #,0
+		lineageTag: ad110c8b-ba65-5ebb-8fff-1b8f962070f9
+
+	measure 'Monthly error' =
+			AVERAGEX (
+			    VALUES ( fact_test_forecast[year_month] ),
+			    DIVIDE ( ABS ( [Forecast items (test)] - [Actual items (test)] ), [Actual items (test)] )
+			)
+		formatString: 0.0%
+		lineageTag: 77b0a4aa-85a9-595b-bb2a-7856c8736304
+
+	measure 'Baseline monthly error' =
+			AVERAGEX (
+			    VALUES ( fact_test_forecast[year_month] ),
+			    DIVIDE ( ABS ( [Baseline items (test)] - [Actual items (test)] ), [Actual items (test)] )
+			)
+		formatString: 0.0%
+		lineageTag: 65b553de-c583-59b3-8d79-ee73283fc493
+
+	measure 'Inside 80% range' =
+			DIVIDE (
+			    CALCULATE ( COUNTROWS ( fact_test_forecast ), fact_test_forecast[inside_range] = TRUE () ),
+			    COUNTROWS ( fact_test_forecast )
+			)
+		formatString: 0%
+		lineageTag: b7b24db5-8edd-503e-bd0f-18d52e429f4b
+
+	measure 'Actual items' = SUM ( fact_regional[actual_items] )
+		formatString: #,0
+		lineageTag: 105dadc5-e4c3-565c-b0e4-f73f03c8ef63
+
+	measure 'Forecast items' = SUM ( fact_regional[forecast_items] )
+		formatString: #,0
+		lineageTag: b3e3b3c9-0f39-5c43-a30d-86e596b223f7
+
+	measure 'Range lower' = SUM ( fact_regional[forecast_lower] )
+		formatString: #,0
+		lineageTag: 06865e35-4ebe-5393-b79d-ac0d63ecae42
+
+	measure 'Range upper' = SUM ( fact_regional[forecast_upper] )
+		formatString: #,0
+		lineageTag: 6680e427-043c-5f3e-8eb9-6de381584b05
+
+	measure 'Forecast items, next 3 months' = SUM ( fact_future_forecast[items] )
+		formatString: #,0
+		lineageTag: 4c660876-e023-5343-a4d1-dc90b36bac86
+
+	measure 'Forecast error' = IF ( HASONEVALUE ( dim_group[drug_group] ), SUM ( fact_error_spc[error_pct] ) / 100 )
+		formatString: +0.0%;-0.0%;0.0%
+		lineageTag: 0dbc25ef-6dc1-5a4a-b5c8-d2e629cf225c
+
+	measure 'Mean error' = IF ( HASONEVALUE ( dim_group[drug_group] ), MAX ( fact_error_spc[mean] ) / 100 )
+		formatString: +0.0%;-0.0%;0.0%
+		lineageTag: c9ec0107-c11a-5c68-9f6d-30a31ce781af
+
+	measure 'Upper limit' = IF ( HASONEVALUE ( dim_group[drug_group] ), MAX ( fact_error_spc[upper_limit] ) / 100 )
+		formatString: +0.0%;-0.0%;0.0%
+		lineageTag: 26e3d535-c6a9-5da2-acc5-1a99fb82ce15
+
+	measure 'Lower limit' = IF ( HASONEVALUE ( dim_group[drug_group] ), MAX ( fact_error_spc[lower_limit] ) / 100 )
+		formatString: +0.0%;-0.0%;0.0%
+		lineageTag: c8f6d78d-7ee6-5d43-b290-675afbfd0da9
+
+	measure 'Signal month' = IF ( HASONEVALUE ( dim_group[drug_group] ) && CALCULATE ( COUNTROWS ( fact_error_spc ), fact_error_spc[signal] <> "none" ) > 0, [Forecast error] )
+		formatString: +0.0%;-0.0%;0.0%
+		lineageTag: 7714bcfb-18be-5b8d-b0a0-d9388279d544
+
+	measure 'SPC signals' = IF ( HASONEVALUE ( dim_group[drug_group] ), CALCULATE ( COUNTROWS ( fact_error_spc ), fact_error_spc[signal] <> "none" ) + 0 )
+		formatString: 0
+		lineageTag: 2b4b1407-f06e-5d1f-84a6-e1081d2ea657
+
+	column Value
+		dataType: string
+		isHidden
+		lineageTag: 22e3ffcb-fa0f-5e63-9aa7-9cc8fca66d4c
+		summarizeBy: none
+		sourceColumn: Value
+
+	partition _Measures = m
+		mode: import
+		source = #table(type table [Value = text], {})
+
+	annotation PBI_ResultType = Table

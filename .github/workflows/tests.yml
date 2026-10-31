@@ -1,0 +1,22 @@
+# Runs on every push and pull request: the tests that need no downloaded data (the SQL table
+# build, the experiment keep rule and the API). The leakage tests need dataset/ and skip here;
+# run them locally after python -m src.run_all.
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install (pinned by requirements.txt; no LightGBM or PyTorch needed)
+        run: pip install -c requirements.txt pandas numpy certifi duckdb fastapi httpx pytest
+      - name: Test
+        run: python -m pytest -v

@@ -1,0 +1,38 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.4.0/schema.json",
+  "name": "error",
+  "position": {
+    "x": 24,
+    "y": 84,
+    "z": 2000,
+    "width": 296,
+    "height": 100,
+    "tabOrder": 2000
+  },
+  "visual": {
+    "visualType": "card",
+    "query": {
+      "queryState": {
+        "Values": {
+          "projections": [
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "_Measures"
+                    }
+                  },
+                  "Property": "Monthly error"
+                }
+              },
+              "queryRef": "_Measures.Monthly error",
+              "nativeQueryRef": "Monthly error",
+              "displayName": "LightGBM monthly error"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

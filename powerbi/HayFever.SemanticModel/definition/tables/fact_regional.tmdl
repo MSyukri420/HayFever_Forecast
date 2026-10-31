@@ -1,0 +1,77 @@
+table fact_regional
+	lineageTag: 339c3e3f-feeb-51d4-8838-0620e0965bd2
+
+	column year_month
+		dataType: int64
+		isHidden
+		lineageTag: d4411d3b-24df-5f99-9520-a55d127eddc4
+		summarizeBy: none
+		sourceColumn: year_month
+
+		annotation SummarizationSetBy = User
+
+	column drug_group
+		dataType: string
+		isHidden
+		lineageTag: 82e6f1d0-4d7b-5ebe-9a7e-e0cfc5d099c9
+		summarizeBy: none
+		sourceColumn: drug_group
+
+		annotation SummarizationSetBy = User
+
+	column actual_items
+		dataType: int64
+		formatString: #,0
+		lineageTag: cf69f75c-7a74-57fe-a042-1e1c6504ac65
+		summarizeBy: none
+		sourceColumn: actual_items
+
+		annotation SummarizationSetBy = User
+
+	column patients
+		dataType: int64
+		formatString: #,0
+		lineageTag: 6a43b597-69ae-58b1-9dc8-4e99c6c85954
+		summarizeBy: none
+		sourceColumn: patients
+
+		annotation SummarizationSetBy = User
+
+	column forecast_items
+		dataType: int64
+		formatString: #,0
+		lineageTag: 2e203332-ebe7-50ff-95a8-a748166d21ef
+		summarizeBy: none
+		sourceColumn: forecast_items
+
+		annotation SummarizationSetBy = User
+
+	column forecast_lower
+		dataType: int64
+		formatString: #,0
+		lineageTag: 8bf18615-26b0-59b9-8205-4d154f17ede5
+		summarizeBy: none
+		sourceColumn: forecast_lower
+
+		annotation SummarizationSetBy = User
+
+	column forecast_upper
+		dataType: int64
+		formatString: #,0
+		lineageTag: c5725457-325e-5a68-a937-155a0179c7fa
+		summarizeBy: none
+		sourceColumn: forecast_upper
+
+		annotation SummarizationSetBy = User
+
+	partition fact_regional = m
+		mode: import
+		source =
+				let
+				    Source = Csv.Document(File.Contents(DataFolder & "\fact_regional.csv"), [Delimiter = ",", Encoding = 65001, QuoteStyle = QuoteStyle.Csv]),
+				    Headers = Table.PromoteHeaders(Source, [PromoteAllScalars = true]),
+				    Typed = Table.TransformColumnTypes(Headers, {{"year_month", Int64.Type}, {"drug_group", type text}, {"actual_items", Int64.Type}, {"patients", Int64.Type}, {"forecast_items", Int64.Type}, {"forecast_lower", Int64.Type}, {"forecast_upper", Int64.Type}}, "en-US")
+				in
+				    Typed
+
+	annotation PBI_ResultType = Table

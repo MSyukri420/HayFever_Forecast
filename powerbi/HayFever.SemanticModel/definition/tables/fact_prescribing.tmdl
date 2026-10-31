@@ -1,0 +1,68 @@
+table fact_prescribing
+	lineageTag: e66d11f0-b40a-5ee0-a55f-085c51293fc2
+
+	column practice_code
+		dataType: string
+		isHidden
+		lineageTag: 9ea776b9-e73d-5463-918f-a0b00cd3a77e
+		summarizeBy: none
+		sourceColumn: practice_code
+
+		annotation SummarizationSetBy = User
+
+	column year_month
+		dataType: int64
+		isHidden
+		lineageTag: 0cdfbc30-3b61-5f25-9dca-3ba1f9675c0c
+		summarizeBy: none
+		sourceColumn: year_month
+
+		annotation SummarizationSetBy = User
+
+	column drug_group
+		dataType: string
+		isHidden
+		lineageTag: 2f1b540d-c1b0-5c3b-a50a-23a61cd5c653
+		summarizeBy: none
+		sourceColumn: drug_group
+
+		annotation SummarizationSetBy = User
+
+	column items
+		dataType: int64
+		formatString: #,0
+		lineageTag: f4c6f1f2-889f-56e4-8373-0ba171c39de3
+		summarizeBy: none
+		sourceColumn: items
+
+		annotation SummarizationSetBy = User
+
+	column patients
+		dataType: int64
+		formatString: #,0
+		lineageTag: 0d5ad784-693f-54e7-96d0-89f42938b513
+		summarizeBy: none
+		sourceColumn: patients
+
+		annotation SummarizationSetBy = User
+
+	column per1000
+		dataType: double
+		formatString: 0.00
+		lineageTag: d68f5ed4-183a-583f-9716-2f29c12f0276
+		summarizeBy: none
+		sourceColumn: per1000
+
+		annotation SummarizationSetBy = User
+
+	partition fact_prescribing = m
+		mode: import
+		source =
+				let
+				    Source = Csv.Document(File.Contents(DataFolder & "\fact_prescribing.csv"), [Delimiter = ",", Encoding = 65001, QuoteStyle = QuoteStyle.Csv]),
+				    Headers = Table.PromoteHeaders(Source, [PromoteAllScalars = true]),
+				    Typed = Table.TransformColumnTypes(Headers, {{"practice_code", type text}, {"year_month", Int64.Type}, {"drug_group", type text}, {"items", Int64.Type}, {"patients", Int64.Type}, {"per1000", type number}}, "en-US")
+				in
+				    Typed
+
+	annotation PBI_ResultType = Table
