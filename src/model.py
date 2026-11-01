@@ -1,86 +1,8 @@
-"""Forecast each practice's monthly rate 3 months ahead and score it against simple baselines.
+"""Forecast each practice's monthly rate 3 months ahead and compare it with simple baselines.
 
-Usage:
-    python -m src.model                       # antihistamines (per1000_antihist)
-    python -m src.model --target nasal        # or eye
+    python -m src.model --target antihist      # or nasal, eye
     python -m src.model --valid-only --change "what changed"
-                                              # validation only (~1 min, no test metrics),
-                                              # logged to output/experiments.csv (src.experiments)
-    python -m src.model --params base         # ignore TUNED_PARAMS (latest-tune: last src.tune result)
-
-Baselines:
-    last_year       the rate in the same month last year (lag12)
-    last_year_lift  this year's winter baseline + last year's lift over its winter
-                    (winter_base + lag12_excess): last year's season on top of today's level
-
-LightGBM variants (all on feature.FORECAST_FEATURES), differing in loss and in what is predicted:
-    lgb_l1          rate, absolute loss. Aims at the median, which sits below the mean when
-                    a few practice-months spike, so totals come out low.
-    lgb_l2          rate, squared loss (aims at the mean)
-    lgb_poisson     rate, Poisson loss (mean, multiplicative effects)
-    lgb_l2_excess   rate minus the practice's winter base, squared loss. Trees can't predict
-                    beyond the levels they were trained on; adding the base back lets a rising
-                    level carry into the forecast.
-    lgb_l2_ratio    rate / winter base, squared loss (the season as a multiple of the base)
-The chosen variant is the one with the lowest CHOOSE_BY averaged over the validation years.
-The test period is never used to choose.
-
-    lightgbm        the chosen variant retrained every month, as it would be in use: the
-                    forecast for month t is made by a model trained on targets up to t - 3 only
-                    (the same months its features can see), with the tree count fixed from 2023.
-                    The variants above are frozen at the end of 2023 and drift low as rates
-                    keep rising; monthly retraining is what removes most of that bias.
-    pytorch         a small neural network (src.nn) on the same features, validated and retrained
-                    monthly in the same way, as a second model family. It is reported, not chosen
-                    from: on validation it is behind the LightGBM variants (--no-nn skips it).
-
-Prediction intervals (INTERVAL, 80%): split conformal, calibrated on the chosen variant's
-validation forecasts (2021-2023), per calendar month, with the error scaled by a Poisson-like
-spread so smaller practices get wider ranges; and a regional range from the validation months'
-relative errors of the regional total. src.evaluate checks how often the test falls inside.
-
-Explanations: TreeSHAP contributions of the frozen chosen model on the test rows (LightGBM's
-pred_contrib), in items per 1,000 (shap_in_rate_units).
-
-Validation: one fold per year in VALID_YEARS (2021, 2022, 2023). Each fold trains on all earlier
-years and scores that year; early stopping on the same year picks its tree count. One year is
-only 12 monthly regional errors, so a single year's score moves by several tenths of a point
-by chance; averaging three years, and asking a change to win in each (src.experiments), keeps
-choices from chasing that noise.
-
-Time split (target months):
-    valid   2021, 2022, 2023   one fold each, trained on the years before
-    refit   2014 - 2023        final model with the 2023 fold's tree count
-    test    Mar 2024 - Aug 2026
-The test starts in March 2024, not January: features are 3 months old, so the first forecast
-the end-2023 model could really have made is for March 2024 (data to Dec 2023).
-Every model is scored on the same rows: those where both baselines have a value.
-
-Tried and rejected (output/experiments.csv has the scores), on the 3-year validation:
-    blend with last_year_lift    weight per year chosen on the other two years. Antihistamines
-                                 3.89 -> 3.83 (better in 2021 and 2023, worse in 2022), nasal and
-                                 eye worse. The best weight swung from 0.3 to 1.0 between years.
-    reconcile to region model    practice forecasts scaled to a ridge regression on the
-                                 region-level series. Worse for antihistamines (4.56) and eye
-                                 drops (10.7); nasal level (3.89, worse in 2023). About 70 region
-                                 months is too little to beat the sum of the practice forecasts.
-    average the variants         all five: antihistamines 3.89 -> 3.76 and nasal 3.91 -> 3.76,
-                                 but all of it from 2022 (worse in 2021 and 2023); eye worse.
-                                 Top three (picked on the other years): worse or level.
-    Optuna tuning                25 trials on 2021-22 per target. Antihistamines first scored
-                                 3.89 -> 3.66 (better every year) but that was one lucky seed:
-                                 over 5 seeds, default 3.86 vs tuned 3.78 (-2%), and worse in
-                                 2023 (3.46 -> 3.60), the year the search never saw. Nasal 3.91
-                                 -> 3.73 but worse in 2023; eye drops: no trial beat the defaults.
-Seed noise: with subsample < 1, changing the random seed alone moves one year's score by
-0.1-0.2 and the 3-year mean by ~0.05. Check any candidate across several seeds before keeping it.
-
-Results go to output/results/: <target>_valid.csv (per year and mean, the variant choice),
-and unless --valid-only: <target>_scores.csv (test, one row per model), <target>_by_month.csv,
-<target>_by_group.csv (by town and list size), <target>_monthly_bias.csv,
-<target>_importance.csv (mean |SHAP| and gain shares), <target>_shap_by_month.csv,
-<target>_predictions.csv (with the lightgbm_lo/hi range) and <target>_model.json (the choice,
-tree count, settings and interval calibration, used by src.forecast).
+    python -m src.model --evaluate-only        # redo the bootstrap ranges and coverage
 """
 
 import argparse
@@ -120,8 +42,7 @@ PARAMS = {
     "verbose": -1,
 }
 
-# Settings from src.tune that passed the keep rule (output/experiments.csv), per target; others
-# use PARAMS. Empty: no tuning has survived a check across random seeds (see "Tried and rejected").
+# tuned settings that passed the keep rule (none so far)
 TUNED_PARAMS = {}
 
 
@@ -138,6 +59,8 @@ VARIANTS = {
 }
 BASELINES = ["last_year", "last_year_lift"]
 INTERVAL = 0.8  # coverage of the prediction intervals
+BLOCK, RESAMPLES = 3, 10_000  # block bootstrap of the test months
+COMPARE = ["last_year_lift", "last_year", "pytorch"]
 
 
 def baselines(df, g):
@@ -162,8 +85,7 @@ def _in_year(df, year):
 
 
 def validate(df, target, g, objective, form, params=None, years=VALID_YEARS, features=F.FORECAST_FEATURES):
-    """One fold per year in ``years``: train on earlier years, early-stop on and predict that year.
-    Returns predictions for every validation row and the tree count of each fold."""
+    """One fold per year, trained on the years before it."""
     y = _encode(df, target, g, form)
     usable = y.notna() & np.isfinite(y)  # excess/ratio need a winter base
     params = {**(params or PARAMS), "objective": objective}
@@ -181,7 +103,6 @@ def validate(df, target, g, objective, form, params=None, years=VALID_YEARS, fea
 
 
 def refit(df, target, g, objective, form, n_trees, params=None, features=F.FORECAST_FEATURES):
-    """Final frozen model on everything up to VALID_END."""
     y = _encode(df, target, g, form)
     train = y.notna() & np.isfinite(y) & (df["YEAR_MONTH"] <= VALID_END)
     params = {**(params or PARAMS), "objective": objective, "n_estimators": n_trees}
@@ -190,7 +111,7 @@ def refit(df, target, g, objective, form, n_trees, params=None, features=F.FOREC
 
 def rolling_forecast(df, target, g, objective, form, n_trees, months, params=None,
                      features=F.FORECAST_FEATURES):
-    """Forecast each month in ``months`` with a model trained on targets up to that month - HORIZON."""
+    # retrain for every month on what was known HORIZON months before
     y = _encode(df, target, g, form)
     usable = y.notna() & np.isfinite(y)
     params = {**(params or PARAMS), "objective": objective, "n_estimators": n_trees}
@@ -206,15 +127,12 @@ def rolling_forecast(df, target, g, objective, form, n_trees, months, params=Non
 
 
 def _poisson_scale(pred, patients):
-    """Rough SD of a practice's monthly rate if its items were Poisson: sqrt(rate * 1000 / patients)."""
+    # rough Poisson spread, so small practices get wider ranges
     return np.sqrt(np.maximum(pred, 0.5) * 1000 / patients)
 
 
 def interval_quantiles(rows, target, pred):
-    """Calibrate INTERVAL prediction intervals on out-of-sample (validation) forecasts in ``pred``.
-    Practice level (split conformal, per calendar month): quantiles of the error divided by
-    _poisson_scale, so a small list gets a wider range. Regional: quantiles of the regional total's
-    relative error over the validation months."""
+    """Split-conformal quantiles from the validation forecasts: per calendar month, and regional."""
     lo, hi = (1 - INTERVAL) / 2, (1 + INTERVAL) / 2
     rows = rows.dropna(subset=[pred, target])
     score = (rows[target] - rows[pred]) / _poisson_scale(rows[pred], rows["PATIENTS"])
@@ -226,7 +144,6 @@ def interval_quantiles(rows, target, pred):
 
 
 def add_intervals(rows, pred, quantiles, patients="PATIENTS"):
-    """Lower and upper bounds of the INTERVAL range around the practice forecasts in ``pred``."""
     by_month = {int(m): q for m, q in quantiles["practice"].items()}  # JSON keys are strings
     q = np.array([by_month[m] for m in rows["YEAR_MONTH"] % 100])
     scale = _poisson_scale(rows[pred], rows[patients])
@@ -234,10 +151,7 @@ def add_intervals(rows, pred, quantiles, patients="PATIENTS"):
 
 
 def shap_in_rate_units(model, rows, g, form, features=F.FORECAST_FEATURES):
-    """TreeSHAP contributions (LightGBM pred_contrib) converted to items per 1,000, so they add up to
-    the forecast for every form: rate = start + sum of contributions. "start" is the model's average
-    output, plus the practice's winter base for the excess form; ratio contributions are scaled by
-    the winter base."""
+    """TreeSHAP values in items per 1,000, adding up to the forecast."""
     contrib = pd.DataFrame(model.booster_.predict(rows[features], pred_contrib=True),
                            columns=features + ["start"], index=rows.index)
     base = rows[f"{g}_winter_base"]
@@ -249,8 +163,6 @@ def shap_in_rate_units(model, rows, g, form, features=F.FORECAST_FEATURES):
 
 
 def _scores(rows, target, models):
-    """MAE per practice-month (all, May-Jul, Aug-Apr), and regional error: the whole West Midlands'
-    monthly items, predicted vs actual, as bias over the period and mean absolute % error per month."""
     month = rows["YEAR_MONTH"] % 100
     weight = rows["PATIENTS"] / 1000
     actual = (rows[target] * weight).groupby(rows["YEAR_MONTH"]).sum()
@@ -286,7 +198,6 @@ def _breakdowns(rows, target, models):
 
 
 def validation_scores(df, target, models):
-    """_scores for each VALID_YEARS fold, plus their mean (year == "mean")."""
     per_year = pd.concat([_scores(df[_in_year(df, y)].dropna(subset=BASELINES), target, models).assign(year=y)
                           for y in VALID_YEARS])
     mean = per_year.drop(columns="year").groupby("model", sort=False).mean().round(3).reset_index()
@@ -294,10 +205,62 @@ def validation_scores(df, target, models):
     return pd.concat([per_year, mean.assign(year="mean")], ignore_index=True)
 
 
+def monthly_ape(rows, target, models):
+    region = rows[[target, *models]].mul(rows["PATIENTS"] / 1000, axis=0).groupby(rows["YEAR_MONTH"]).sum()
+    return region[models].sub(region[target], axis=0).abs().div(region[target], axis=0) * 100
+
+
+def block_resample(n, block=BLOCK, resamples=RESAMPLES, seed=SEED):
+    # moving blocks, since neighbouring months' errors are related
+    rng = np.random.default_rng(seed)
+    starts = rng.integers(0, n - block + 1, size=(resamples, int(np.ceil(n / block))))
+    return (starts[:, :, None] + np.arange(block)).reshape(resamples, -1)[:, :n]
+
+
+def gain_ci(group):
+    target = f"per1000_{group}"
+    rows = pd.read_csv(RESULTS_DIR / f"{group}_predictions.csv").dropna(subset=BASELINES)
+    others = [m for m in COMPARE if m in rows]
+    ape = monthly_ape(rows, target, ["lightgbm", *others])
+    idx = block_resample(len(ape))
+    out = []
+    for m in others:
+        ours, other = ape["lightgbm"].to_numpy()[idx].mean(axis=1), ape[m].to_numpy()[idx].mean(axis=1)
+        gap, rel = other - ours, (ours / other - 1) * 100
+        out.append({
+            "model": m,
+            "lightgbm_pct": ape["lightgbm"].mean(), "other_pct": ape[m].mean(),
+            "gap_points": ape[m].mean() - ape["lightgbm"].mean(),
+            "gap_lo": np.percentile(gap, 2.5), "gap_hi": np.percentile(gap, 97.5),
+            "change_pct": (ape["lightgbm"].mean() / ape[m].mean() - 1) * 100,
+            "change_lo": np.percentile(rel, 2.5), "change_hi": np.percentile(rel, 97.5),
+            "months_lightgbm_better": int((ape["lightgbm"] < ape[m]).sum()), "months": len(ape),
+        })
+    return pd.DataFrame(out).round(2)
+
+
+def coverage(group):
+    target = f"per1000_{group}"
+    rows = pd.read_csv(RESULTS_DIR / f"{group}_predictions.csv").dropna(subset=["lightgbm_lo", target])
+    q = json.loads((RESULTS_DIR / f"{group}_model.json").read_text())["quantiles"]
+    inside = rows[target].between(rows["lightgbm_lo"], rows["lightgbm_hi"])
+    width = rows["lightgbm_hi"] - rows["lightgbm_lo"]
+    size = pd.qcut(rows["PATIENTS"], 4, labels=["smallest 25%", "2nd", "3rd", "largest 25%"])
+    out = [{"slice": "all practice-months", "by": "all", "coverage": inside.mean(), "width": width.mean(),
+            "n": len(rows)}]
+    for by, key in [("list size", size), ("calendar month", rows["YEAR_MONTH"] % 100)]:
+        for k, part in inside.groupby(key, observed=True):
+            out.append({"slice": str(k), "by": by, "coverage": part.mean(), "width": width[part.index].mean(),
+                        "n": len(part)})
+    weight = rows["PATIENTS"] / 1000
+    region = rows[[target, "lightgbm"]].mul(weight, axis=0).groupby(rows["YEAR_MONTH"]).sum()
+    lo, hi = region["lightgbm"] * (1 + q["region"][0]), region["lightgbm"] * (1 + q["region"][1])
+    out.append({"slice": "regional total", "by": "region", "coverage": region[target].between(lo, hi).mean(),
+                "width": ((hi - lo) / region["lightgbm"] * 100).mean(), "n": len(region)})
+    return pd.DataFrame(out).round(3)
+
+
 def run(group="antihist", valid_only=False, params=None, with_nn=True):
-    """Validate every variant and choose one; unless ``valid_only``, then refit and score the test.
-    ``params`` defaults to params_for(group). ``with_nn`` adds the PyTorch comparison (src.nn).
-    Returns (valid_scores, chosen, test results or None)."""
     target = f"per1000_{group}"
     params = params or params_for(group)
     df = pd.read_csv(io.DATA_DIR / "processed" / "features.csv")
@@ -342,7 +305,6 @@ def run(group="antihist", valid_only=False, params=None, with_nn=True):
     scores.insert(1, "chosen", scores["model"] == chosen)
     by_month, by_group, monthly_bias = _breakdowns(test, target, BASELINES + ["lightgbm"] + others)
 
-    # what drives the forecasts: TreeSHAP of the frozen chosen model on the test rows
     contrib = shap_in_rate_units(fitted[chosen], test, group, VARIANTS[chosen][1])
     gain = pd.Series(fitted[chosen].booster_.feature_importance("gain"), index=F.FORECAST_FEATURES)
     shap = contrib[F.FORECAST_FEATURES].abs().mean()
@@ -359,12 +321,19 @@ def run(group="antihist", valid_only=False, params=None, with_nn=True):
     shap_by_month.to_csv(RESULTS_DIR / f"{group}_shap_by_month.csv")
     keep = ["YEAR_MONTH", "PRACTICE_CODE", "TOWN", "PATIENTS", target] + models + ["lightgbm_lo", "lightgbm_hi"]
     df.loc[test_rows, keep].to_csv(RESULTS_DIR / f"{group}_predictions.csv", index=False)
-    # everything src.forecast needs to train the deployed model the same way
     (RESULTS_DIR / f"{group}_model.json").write_text(json.dumps({
         "chosen": chosen, "n_trees": int(n_trees), "params": params, "interval": INTERVAL,
         "quantiles": quantiles}, indent=2))
+    gains = evaluate(group)
     log.info("results in %s", RESULTS_DIR)
-    return valid_scores, chosen, (scores, monthly_bias, importance)
+    return valid_scores, chosen, (scores, monthly_bias, importance, gains)
+
+
+def evaluate(group):
+    gains, cover = gain_ci(group), coverage(group)
+    gains.to_csv(RESULTS_DIR / f"{group}_gain_ci.csv", index=False)
+    cover.to_csv(RESULTS_DIR / f"{group}_coverage.csv", index=False)
+    return gains
 
 
 def main():
@@ -377,10 +346,15 @@ def main():
     parser.add_argument("--no-nn", action="store_true", help="skip the PyTorch comparison (src.nn)")
     parser.add_argument("--params", choices=["kept", "base", "latest-tune"], default="kept",
                         help="kept: params_for(target) (TUNED_PARAMS where kept, else PARAMS); "
-                             "base: PARAMS; latest-tune: the last src.tune result for this target")
+                             "base: PARAMS; latest-tune: the last src.experiments --tune result")
+    parser.add_argument("--evaluate-only", action="store_true",
+                        help="redo the gain ranges and coverage from the saved predictions")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
+    if args.evaluate_only:
+        print(evaluate(args.target).to_string(index=False))
+        return
     params = {"kept": params_for(args.target), "base": PARAMS}.get(args.params)
     if args.params == "latest-tune":
         params = {**PARAMS, **json.loads((RESULTS_DIR / f"{args.target}_tuned_params.json").read_text())}
@@ -393,9 +367,10 @@ def main():
                                    {y: row[y] for y in VALID_YEARS}, note=args.note)
         print(f"\nlogged: {label}, mean {CHOOSE_BY} {row['mean']:.3f}, kept={kept}")
     if test is not None:
-        scores, monthly_bias, importance = test
+        scores, monthly_bias, importance, gains = test
         print("\nTest:", scores.to_string(index=False), "Regional bias by test month (%):",
-              monthly_bias.to_string(), importance.head(10).to_string(), sep="\n\n")
+              monthly_bias.to_string(), importance.head(10).to_string(),
+              "Gain over each comparison, with 95% range:", gains.to_string(index=False), sep="\n\n")
 
 
 if __name__ == "__main__":

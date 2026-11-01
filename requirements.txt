@@ -1,5 +1,4 @@
-# Python 3.12. Versions the results were produced with.
-# PyTorch CPU build: pip install torch --index-url https://download.pytorch.org/whl/cpu
+# Python 3.12; CPU torch: pip install torch --index-url https://download.pytorch.org/whl/cpu
 pandas==2.3.1
 numpy==2.2.6
 certifi==2025.8.3

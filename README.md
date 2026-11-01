@@ -50,7 +50,7 @@ Four pages: trends, practices, the next 3 months with ranges and SHAP drivers, a
 
 ```bash
 pip install -r requirements.txt
-python -m src.run_all                  # download the data, build the table and features
+python -m src.preprocess               # download the data, build the table and features
 python -m src.model --target antihist  # validate, choose and test (also: nasal, eye)
 python -m src.forecast                 # train on all the data, forecast the next 3 months
 uvicorn src.api:app                    # API docs at http://127.0.0.1:8000/docs

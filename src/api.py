@@ -1,17 +1,6 @@
-"""Forecast API: serves the forecasts made by src.forecast.
+"""API for the forecasts in output/forecast/.
 
-Usage:
-    python -m src.forecast                    # make output/forecast/ first
-    uvicorn src.api:app                       # then open http://127.0.0.1:8000/docs
-
-Endpoints:
-    GET /health                                       data month, forecast months, chosen models
-    GET /practices?town=Coventry                      practices with a forecast, optionally by town
-    GET /practices/{code}/forecast?group=antihist     one practice, the next HORIZON months
-    GET /region/forecast?group=antihist               the West Midlands total per month
-
-Rates are items per 1,000 registered patients. lower/upper is the prediction range (80% by
-default, see src.model.INTERVAL), calibrated on 2021-2023 and checked on the 2024-2026 test.
+    uvicorn src.api:app      # docs at http://127.0.0.1:8000/docs
 """
 
 import json

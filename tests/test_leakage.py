@@ -1,10 +1,4 @@
-"""Leakage tests: a forecast feature for month t may only use data from t - HORIZON or earlier.
-
-The main check is a cutoff test. Features are built twice: once on the real model table,
-and once with every measured value (items, rates, patients, weather) after month C
-replaced by noise. For target months up to C + HORIZON the two builds must match exactly.
-Any difference means a feature looked at data it would not have had when forecasting.
-"""
+"""Leakage tests: replace everything after month C with noise, and features up to C + HORIZON must not change."""
 
 import numpy as np
 import pandas as pd
@@ -14,7 +8,7 @@ from src import feature as F
 from src import io
 
 TABLE = io.DATA_DIR / "processed" / "model_table.csv"
-pytestmark = pytest.mark.skipif(not TABLE.exists(), reason="dataset/ not built (python -m src.run_all)")
+pytestmark = pytest.mark.skipif(not TABLE.exists(), reason="dataset/ not built (python -m src.preprocess)")
 
 MEASURED = ([f"items_{g}" for g in F.GROUPS] + F.TARGETS + ["PATIENTS"] + F.WEATHER_COLS)
 

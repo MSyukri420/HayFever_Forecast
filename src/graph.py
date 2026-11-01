@@ -1,14 +1,6 @@
-"""Charts for the README, saved as PNGs in docs/figures/.
+"""Charts for the README, saved to docs/figures/.
 
-Usage:
-    python -m src.graph          # after python -m src.model has run for every target
-
-Reads dataset/processed/model_table.csv, the per-target files in output/results/ and
-output/experiments.csv. A chart whose inputs are missing is skipped.
-figure_data.csv holds every plotted number, as a table view of the charts.
-
-"Regional" means the whole West Midlands: practice rates weighted by list size, i.e. total
-items per 1,000 registered patients, the same way src.model scores regional error.
+    python -m src.graph      # after src.model for each target
 """
 
 import json
@@ -42,10 +34,7 @@ CHANGE_LABELS = {
     "optuna settings (25 trials on 2021-22)": "Optuna tuning",
 }
 
-# Colours (validated for colour-blind separation): one fixed hue per model, actuals in ink,
-# and the first four categorical slots for feature families. Only three models are drawn, as
-# three hues is what stays distinct when every pair is compared; the second baseline
-# (same month last year) is in the results tables.
+# colour-blind safe; only three models are drawn so every pair stays distinct
 MODEL_COLORS = {"lightgbm": "#2a78d6", "last_year_lift": "#eb6834", "pytorch": "#1baf7a"}
 RANGE_COLOR = "#cde2fb"
 FAMILY_COLORS = {"Calendar & policy": "#2a78d6", "Same drug's history": "#eb6834",
@@ -80,7 +69,7 @@ plt.rcParams.update({
     "savefig.bbox": "tight",
 })
 
-# Every plotted number, collected for figure_data.csv.
+# rows for figure_data.csv
 _table = []
 
 
@@ -93,7 +82,6 @@ def _subtitle(ax, text):
 
 
 def _figure_header(fig, title, subtitle, top=0.84):
-    """Title and subtitle above the panels, left-aligned, without overlapping."""
     fig.subplots_adjust(top=top)
     fig.text(0.06, 0.985, title, fontsize=12, color=INK, va="top")
     fig.text(0.06, 0.985 - 0.045 * 7 / fig.get_figheight(), subtitle, fontsize=9, color=MUTED, va="top")
@@ -112,7 +100,6 @@ def _dates(year_month):
 
 
 def _regional(rows, cols):
-    """Regional rate per 1,000 per month: the list-size weighted mean of practice rates."""
     weighted = rows[cols].mul(rows["PATIENTS"], axis=0).groupby(rows["YEAR_MONTH"]).sum()
     return weighted.div(rows.groupby("YEAR_MONTH")["PATIENTS"].sum(), axis=0)
 
@@ -133,10 +120,6 @@ def _family(feature, group):
         return "Calendar & policy"
     return "Location & list size"
 
-
-# --------------------------------------------------------------------------- #
-# Charts
-# --------------------------------------------------------------------------- #
 
 def plot_regional_rates():
     """Small multiples: regional rate per 1,000 patients, every month 2014-2026, per drug group."""
@@ -340,7 +323,6 @@ def plot_drivers_by_month():
         for fam in families:
             v = by_family[fam].to_numpy()
             bottom = np.where(v >= 0, up, down)
-            # 2px surface edge keeps the stacked segments apart
             ax.bar(s.index, v, bottom=bottom, width=0.75, color=colors[fam], edgecolor=SURFACE, linewidth=1,
                    label=fam)
             up, down = up + np.clip(v, 0, None), down + np.clip(v, None, 0)

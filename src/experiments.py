@@ -1,34 +1,11 @@
-"""Experiment log for the tuning loop.
+"""Log of validation runs, the rule for keeping a change, and Optuna tuning on the 2021-22 folds.
 
-Each row records one change and its validation scores (CHOOSE_BY in src.model, one per
-VALID_YEARS fold, lower is better), so runs can be compared and dead ends are not retried.
-Test-period metrics are deliberately not stored here; they are reported once at the end
-of a loop.
-
-Usage:
-    python -m src.model --target antihist --valid-only --change "add town-level lag"
-                                                   # runs validation and logs it here
-    python -m src.experiments --summary            # best kept run per target
-    python -m src.experiments --summary --all      # every logged run
-
-    from src.experiments import log_run, best_run
-    log_run("antihist", "lgb_poisson", "add town-level lag", {2021: 4.10, 2022: 3.71, 2023: 3.55})
-
-Keep rule (``is_improvement``): a change is kept only if it beats the best kept run for that
-target in every validation year AND improves the mean by more than MIN_GAIN (relative).
-The first run logged for a target is kept as the reference.
-
-Why so strict (measured on antihistamines, 2021-2023): one year's score is the mean of only
-12 monthly regional errors, with a standard error of 0.7-0.9 points on a score of about 3.9.
-Comparing two models month by month is steadier, but a one-year difference still has a
-standard error of 0.1-0.5 points, and the 3-year mean about 0.15 (~4%). Variants that look
-different in one year swap order in the next (l2_excess vs poisson: +0.17, -0.53, +0.01).
-MIN_GAIN is set to about one standard error of that 3-year difference, and needing every
-year to agree cuts chance "wins" further. Even so, a long loop will keep the odd change by
-luck, so keep runs few and confirm anything kept on the test once, at the end.
+    python -m src.experiments --summary [--all]
+    python -m src.experiments --tune antihist
 """
 
 import argparse
+import json
 import logging
 import subprocess
 from datetime import datetime
@@ -36,16 +13,18 @@ from pathlib import Path
 
 import pandas as pd
 
+from . import feature as F
 from . import io
 
 log = logging.getLogger(__name__)
 
 LOG_PATH = Path(__file__).resolve().parents[1] / "output" / "experiments.csv"
-MIN_GAIN = 0.04  # relative improvement of the mean needed to keep a change (4%, ~1 standard error)
+MIN_GAIN = 0.04  # about one standard error of the 3-year mean
+TUNE_YEARS = (2021, 2022)
+TRIALS = 25
 
 
 def _commit():
-    """Short hash of HEAD, with "-dirty" if tracked files have uncommitted changes."""
     root = LOG_PATH.parents[1]
     try:
         sha = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], cwd=root, text=True).strip()
@@ -64,7 +43,6 @@ def load_log():
 
 
 def best_run(target):
-    """Best kept run for a target (lowest val_mean), or None if nothing is kept yet."""
     df = load_log()
     if df.empty:
         return None
@@ -73,8 +51,7 @@ def best_run(target):
 
 
 def is_improvement(target, year_scores):
-    """True if ``year_scores`` ({year: score}) beats the best kept run in every year and
-    improves its mean by more than MIN_GAIN."""
+    # keep only if it wins every year and the mean by more than MIN_GAIN
     best = best_run(target)
     if best is None:
         return True
@@ -84,8 +61,6 @@ def is_improvement(target, year_scores):
 
 
 def log_run(target, variant, change, year_scores, kept=None, note=""):
-    """Append one run to the log. If ``kept`` is None it is decided by ``is_improvement``.
-    Returns whether the run was kept."""
     if kept is None:
         kept = is_improvement(target, year_scores)
     row = {
@@ -104,12 +79,64 @@ def log_run(target, variant, change, year_scores, kept=None, note=""):
     return kept
 
 
+def _space(trial):
+    return {
+        "learning_rate": trial.suggest_float("learning_rate", 0.01, 0.1, log=True),
+        "num_leaves": trial.suggest_int("num_leaves", 7, 127, log=True),
+        "min_child_samples": trial.suggest_int("min_child_samples", 20, 500, log=True),
+        "subsample": trial.suggest_float("subsample", 0.5, 1.0),
+        "colsample_bytree": trial.suggest_float("colsample_bytree", 0.3, 1.0),
+        "reg_lambda": trial.suggest_float("reg_lambda", 1e-3, 10.0, log=True),
+    }
+
+
+def tune(group, trials=TRIALS):
+    import optuna
+
+    from . import model as M  # model imports this module
+
+    target = f"per1000_{group}"
+    df = pd.read_csv(io.DATA_DIR / "processed" / "features.csv")
+    df[M.BASELINES] = M.baselines(df, group)
+    variant = best_run(group)
+    variant = variant["variant"] if variant is not None and variant["variant"] in M.VARIANTS else None
+    if variant is None:
+        raise SystemExit(f"log a reference run first: python -m src.model --target {group} --valid-only "
+                         f"--change reference")
+    objective, form = M.VARIANTS[variant]
+    log.info("tuning %s for %s on %s", variant, group, TUNE_YEARS)
+
+    def score(trial):
+        params = {**M.PARAMS, **_space(trial)}
+        df["tuned"], _ = M.validate(df, target, group, objective, form, params, years=TUNE_YEARS)
+        rows = df[(df["YEAR_MONTH"] // 100).isin(TUNE_YEARS)].dropna(subset=M.BASELINES)
+        return sum(M._scores(rows[rows["YEAR_MONTH"] // 100 == y], target, ["tuned"])[M.CHOOSE_BY].iloc[0]
+                   for y in TUNE_YEARS) / len(TUNE_YEARS)
+
+    optuna.logging.set_verbosity(optuna.logging.WARNING)
+    study = optuna.create_study(direction="minimize", sampler=optuna.samplers.TPESampler(seed=M.SEED))
+    study.enqueue_trial({k: M.PARAMS[k] for k in _space(optuna.trial.FixedTrial(M.PARAMS))})
+    study.optimize(score, n_trials=trials)
+
+    M.RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    (M.RESULTS_DIR / f"{group}_tuned_params.json").write_text(json.dumps(study.best_params, indent=2))
+    study.trials_dataframe().to_csv(M.RESULTS_DIR / f"{group}_tuning.csv", index=False)
+    log.info("defaults %.3f -> best %.3f on %s: %s", study.trials[0].value, study.best_value,
+             TUNE_YEARS, study.best_params)
+    return study
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--summary", action="store_true", help="best kept run per target (default)")
     parser.add_argument("--all", action="store_true", help="show every run")
+    parser.add_argument("--tune", choices=F.GROUPS, help="run the Optuna search for this target")
+    parser.add_argument("--trials", type=int, default=TRIALS)
     args = parser.parse_args()
 
+    if args.tune:
+        tune(args.tune, args.trials)
+        return
     df = load_log()
     if df.empty:
         print("No runs logged yet.")

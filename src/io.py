@@ -1,20 +1,6 @@
-"""Download the three open datasets and read/save them.
+"""Download prescribing, list size, weather and practice location data, cached per month/town.
 
-Usage:
-    from src import io
-    io.download_all()                    # fetch whatever is missing (cached per month/town)
-    rx = io.read_table("prescriptions")
-    io.save_dataset(df, "dataset/processed/model_table.csv")
-
-    python -m src.io                     # same as io.download_all()
-
-Sources:
-    prescriptions  NHSBSA English Prescribing Dataset, one grouped SQL query per month
-    patients       NHS Digital "Patients Registered at a GP Practice" (quarterly to Apr 2017, then monthly)
-    weather        Open-Meteo historical archive (ERA5), daily, one town per area
-    locations      postcodes.io, latitude/longitude of each practice's latest postcode
-
-Cleaning and joining the tables lives in src/preprocess.py.
+    python -m src.io
 """
 
 import io as _bytes_io
@@ -47,28 +33,26 @@ _DTYPES = {"prescriptions": {"BNF_GROUP": str}}
 
 FIRST, LAST = (2014, 1), (2026, 8)  # prescribing months to download
 
-# West Midlands practices, by postcode area. The digit stops "B" matching BA, BS, BT...
+# West Midlands postcode areas (the digit stops B matching BA, BS...)
 POSTCODE_REGEX = r"^(B|CV|DY|WS|WV|WR|HR|ST|TF|SY)[0-9]"
-# BNF chemical-substance prefixes -> short names used in column names
 BNF_GROUPS = {"030401": "antihist", "120201": "nasal", "110402": "eye"}
 
-# area code -> (weather town, lat, lon); one per West Midlands ICB, plus Hereford
+# one weather town per ICB, plus Hereford
 TOWNS = {
     "QHL": ("Birmingham", 52.48, -1.90),
     "QUA": ("Wolverhampton", 52.59, -2.13),
     "QWU": ("Coventry", 52.41, -1.51),
     "QGH": ("Worcester", 52.19, -2.22),
-    "QGH_HR": ("Hereford", 52.06, -2.72),  # rural Herefordshire is 40-55 km from Worcester
+    "QGH_HR": ("Hereford", 52.06, -2.72),
     "QNC": ("Stoke-on-Trent", 53.00, -2.18),
     "QOC": ("Shrewsbury", 52.71, -2.75),
 }
 
-# certifi's CA bundle: the Windows store on the dev machine rejects the current Let's Encrypt chain
+# the Windows cert store rejects the Let's Encrypt chain
 _SSL = ssl.create_default_context(cafile=certifi.where())
 
 
 def _get(url, data=None, retries=4, rate_limit_wait=65):
-    """GET (or POST JSON when ``data`` is given) with retries; waits longer on HTTP 429."""
     headers = {"User-Agent": "Mozilla/5.0"}
     if data is not None:
         data, headers["Content-Type"] = json.dumps(data).encode(), "application/json"
@@ -102,10 +86,10 @@ def _combine(cache, out):
     log.info("saved %s rows to %s", f"{len(df):,}", out)
 
 
-# --- Prescriptions (NHSBSA) ---------------------------------------------------------
+# Prescriptions (NHSBSA)
 
 EPD_API = "https://opendata.nhsbsa.net/api/3/action/datastore_search_sql"
-SNOMED_FROM = 202503  # tables are EPD_SNOMED_* and the substance column is renamed from here
+SNOMED_FROM = 202503  # table and column names change from here
 
 
 def _prescriptions_sql(ym):
@@ -127,7 +111,6 @@ def _prescriptions_sql(ym):
 
 
 def fetch_prescriptions_month(ym):
-    """One month of West Midlands hay-fever prescribing, one row per practice x BNF group."""
     table, sql = _prescriptions_sql(ym)
     body = json.loads(_get(EPD_API + "?" + urllib.parse.urlencode({"resource_id": table, "sql": sql})))
     if not body.get("success"):
@@ -152,13 +135,13 @@ def download_prescriptions():
     _combine(cache, DATA_DIR / TABLES["prescriptions"])
 
 
-# --- Registered patients (NHS Digital) ----------------------------------------------
+# Registered patients (NHS Digital)
 
 PATIENTS_SERIES = ("https://digital.nhs.uk/data-and-information/publications/statistical/"
                    "patients-registered-at-a-gp-practice")
 _MONTH_NAMES = ["january", "february", "march", "april", "may", "june", "july",
                 "august", "september", "october", "november", "december"]
-# the practice-level file has had several names; try the smallest first
+# the practice-level file has had several names
 _PATIENT_FILES = [
     r"gp-reg-pat-prac-all[^/\"]*\.(?:csv|zip)",    # May 2017 onward (zipped by 2026)
     r"gp-reg-patients-\d{2}-\d{4}\.csv",            # Jan - Jul 2014
@@ -186,7 +169,6 @@ def _patient_file_url(slug):
 
 
 def read_practice_totals(raw, url):
-    """Total registered patients per practice from any of the publication formats."""
     if url.lower().endswith(".zip"):
         with zipfile.ZipFile(_bytes_io.BytesIO(raw)) as z:
             raw = z.read(next(n for n in z.namelist() if n.lower().endswith(".csv")))
@@ -206,7 +188,6 @@ def read_practice_totals(raw, url):
 
 
 def download_patients():
-    """List sizes for the practices in the prescriptions table (England files are filtered on arrival)."""
     cache = CACHE_DIR / "patients_months"
     cache.mkdir(parents=True, exist_ok=True)
     practices = set(read_table("prescriptions")["PRACTICE_CODE"])
@@ -227,7 +208,7 @@ def download_patients():
     _combine(cache, DATA_DIR / TABLES["patients"])
 
 
-# --- Weather (Open-Meteo) -----------------------------------------------------------
+# Weather (Open-Meteo)
 
 WEATHER_API = "https://archive-api.open-meteo.com/v1/archive"
 WEATHER_DAILY = [
@@ -252,7 +233,7 @@ def download_weather():
             continue
         params = {"latitude": lat, "longitude": lon, "start_date": start, "end_date": end,
                   "daily": ",".join(WEATHER_DAILY), "timezone": "Europe/London"}
-        # long requests count as many "calls" against Open-Meteo's per-minute limit
+        # long requests count as several calls against the rate limit
         daily = json.loads(_get(WEATHER_API + "?" + urllib.parse.urlencode(params)))["daily"]
         df = pd.DataFrame(daily).rename(columns={"time": "date"})
         df.insert(0, "town", town)
@@ -263,10 +244,10 @@ def download_weather():
     _combine(cache, DATA_DIR / TABLES["weather"])
 
 
-# --- Practice locations (postcodes.io) ----------------------------------------------
+# Practice locations (postcodes.io)
 
 def _postcode_fallback(postcode):
-    """Retired postcodes: try the terminated-postcode record, then the outcode centre."""
+    # retired postcodes: terminated record, then the outcode centre
     for url, source in [
         (f"https://api.postcodes.io/terminated_postcodes/{postcode.replace(' ', '')}", "terminated postcode"),
         (f"https://api.postcodes.io/outcodes/{postcode.split()[0]}", "outcode centre"),
@@ -280,7 +261,6 @@ def _postcode_fallback(postcode):
 
 
 def download_locations():
-    """Latitude/longitude of each practice's latest postcode in the prescriptions table."""
     rx = read_table("prescriptions")
     latest = rx.sort_values("YEAR_MONTH").groupby("PRACTICE_CODE")["POSTCODE"].last()
     unique = sorted(latest.unique())
@@ -298,10 +278,7 @@ def download_locations():
     save_dataset(loc, DATA_DIR / TABLES["locations"])
 
 
-# --- Read / save --------------------------------------------------------------------
-
 def download_all():
-    """Fetch anything missing. Patients and locations depend on the prescriptions table."""
     download_prescriptions()
     download_patients()
     download_weather()
@@ -310,7 +287,6 @@ def download_all():
 
 
 def read_table(name, data_dir=DATA_DIR):
-    """Read one raw table, e.g. ``read_table("patients")``."""
     if name not in TABLES:
         raise ValueError(f"unknown table {name!r}, expected one of {list(TABLES)}")
     df = pd.read_csv(Path(data_dir) / TABLES[name], dtype=_DTYPES.get(name))
@@ -319,7 +295,6 @@ def read_table(name, data_dir=DATA_DIR):
 
 
 def save_dataset(df, path):
-    """Save by file extension: .parquet (needs pyarrow), .pkl, or .csv (loses dtypes)."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.suffix == ".parquet":

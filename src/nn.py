@@ -1,19 +1,4 @@
-"""A small PyTorch network on the same features, as a second model family next to LightGBM.
-
-Usage:
-    from src import nn
-    pred, epochs = nn.validate(df, "per1000_antihist", "antihist")      # one fold per VALID_YEARS
-    pred = nn.rolling_forecast(df, "per1000_antihist", "antihist", epochs[2023], months)
-
-src.model calls both, so the network is validated, retrained monthly and tested exactly like the
-chosen LightGBM variant ("pytorch" in the results files).
-
-Set-up: a feed-forward network (42 features -> 128 -> 64 -> 1, ReLU, dropout) predicting the
-excess over the practice's winter base, the form that suits a rising level (see src.model),
-standardised. Inputs are standardised with the training rows' median and spread; a missing
-value becomes 0 (the median) plus a 0/1 "was missing" column. Adam with squared loss; in each
-validation fold, early stopping on that year picks the epoch count, as for LightGBM's trees.
-"""
+"""Small PyTorch network on the same features, validated and retrained the same way as LightGBM."""
 
 import logging
 
@@ -38,8 +23,6 @@ VALID_YEARS = (2021, 2022, 2023)
 
 
 class Prep:
-    """Standardise features and target on the training rows only."""
-
     def __init__(self, X, y):
         self.center = X.median()
         self.spread = (X.quantile(0.9) - X.quantile(0.1)).replace(0, 1).fillna(1)
@@ -73,8 +56,6 @@ def _predict(net, x):
 
 
 def fit(X, y, epochs=MAX_EPOCHS, X_valid=None, y_valid=None):
-    """Train on (X, y). With validation data, stop once its loss hasn't improved for PATIENCE epochs
-    and keep the best epoch. Returns (net, prep, epochs used)."""
     torch.manual_seed(SEED)
     prep = Prep(X, y)
     x, t = prep.x(X), prep.y(y)
@@ -112,8 +93,6 @@ def _forecast(net, prep, rows, g):
 
 
 def validate(df, target, g, years=VALID_YEARS):
-    """One fold per year: train on earlier years, early-stop on and predict that year.
-    Returns predictions for every validation row and the epoch count of each fold."""
     y, usable = _excess(df, target, g)
     pred, epochs = pd.Series(np.nan, index=df.index), {}
     for year in years:
@@ -127,7 +106,6 @@ def validate(df, target, g, years=VALID_YEARS):
 
 
 def rolling_forecast(df, target, g, epochs, months):
-    """Forecast each month in ``months`` with a network trained on targets up to that month - HORIZON."""
     y, usable = _excess(df, target, g)
     pred = pd.Series(np.nan, index=df.index)
     for ym in months:

@@ -1,20 +1,6 @@
-"""Export a star schema for Power BI (or any BI tool), built with DuckDB SQL.
+"""Star schema and SPC table for the Power BI report, built with DuckDB SQL into output/powerbi/.
 
-Usage:
-    python -m src.export      # after src.model (every target) and src.forecast
-
-Writes output/powerbi/, one CSV per table. docs/powerbi.md describes the report built on it.
-
-    dim_practice          one row per practice: town, location, latest list size, size band
-    dim_month             one row per month: date, calendar fields, period (history/test/forecast)
-    dim_group             the three drug groups and their BNF codes
-    fact_prescribing      actual items, patients and rate per 1,000, per practice, month, group
-    fact_test_forecast    test months (Mar 2024 - Aug 2026): actual vs LightGBM with its 80% range,
-                          PyTorch and the two baselines, per practice, month, group
-    fact_future_forecast  the deployed forecast for the next 3 months, with range and top drivers
-    fact_regional         West Midlands totals per month and group: actual items, and forecast
-                          items with the 80% range for the test and future months
-Keys: practice_code, year_month and drug_group join every fact to the dimensions.
+    python -m src.powerbi      # after src.model for each target and src.forecast; then Refresh in Power BI
 """
 
 import json
@@ -92,8 +78,7 @@ SQL = {
                split_part(drivers, '; ', 3) AS driver_3
         FROM future ORDER BY year_month, practice_code, drug_group""",
 
-    # History: actual totals. Test: the same practice-months the scores use (rows with both
-    # baselines), forecast total and its range from the validation quantiles. Future: src.forecast.
+    # history, then the test months (same rows as the scores), then the future forecast
     "fact_regional": """
         SELECT year_month, drug_group, actual_items::BIGINT AS actual_items, patients::BIGINT AS patients,
                round(forecast_items)::BIGINT AS forecast_items,
@@ -115,9 +100,7 @@ SQL = {
         SELECT year_month, "group", NULL, patients, items, items_lower, items_upper FROM future_region)
         ORDER BY drug_group, year_month""",
 
-    # XmR control chart of the monthly regional error on the test: limits are the mean
-    # +/- 2.66 x the average moving range. A signal is a month outside the limits or part of
-    # a run of 7+ months on one side of the mean (a sustained bias).
+    # XmR chart: limits at mean +/- 2.66 x average moving range; signal = outside them or a run of 7
     "fact_error_spc": f"""
         WITH err AS (
             SELECT drug_group, year_month,
@@ -180,10 +163,6 @@ def export(out_dir=EXPORT_DIR):
     log.info("Power BI tables in %s", out_dir)
 
 
-def main():
+if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
     export()
-
-
-if __name__ == "__main__":
-    main()

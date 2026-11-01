@@ -1,19 +1,6 @@
-"""Train the deployed model on all the data and forecast the next HORIZON months for every practice.
+"""Train on all the data and forecast the next HORIZON months for every practice.
 
-Usage:
-    python -m src.forecast        # after python -m src.model for each target
-
-Uses the choice src.model made for each drug group (output/results/<target>_model.json: variant,
-tree count, settings and interval calibration) and trains it on every month with a known rate.
-The forecast months are the HORIZON months after the last month of data (data to Aug 2026 ->
-Sep, Oct, Nov 2026). Their features only use data from month - HORIZON or earlier, so they are
-all known already. Practices that appear in the last month of data are forecast.
-
-Writes output/forecast/, which src.api serves:
-    forecasts.csv   one row per practice, group and month: rate per 1,000 and items, the INTERVAL
-                    range, and the three largest SHAP drivers of that forecast
-    regional.csv    the West Midlands total per group and month, with its range
-    meta.json       data month, forecast months, chosen variant per group
+    python -m src.forecast      # after src.model for each target
 """
 
 import json
@@ -40,7 +27,6 @@ def _add_months(ym, k):
 
 
 def future_rows(table, horizon=F.HORIZON):
-    """Empty rows for the ``horizon`` months after the data, for practices in its last month."""
     last = table["YEAR_MONTH"].max()
     current = table[table["YEAR_MONTH"] == last][["PRACTICE_CODE", "POSTCODE", "LAT", "LON", "TOWN"]]
     months = [_add_months(last, k) for k in range(1, horizon + 1)]
@@ -48,7 +34,6 @@ def future_rows(table, horizon=F.HORIZON):
 
 
 def _drivers(contrib, n=DRIVERS):
-    """The n largest contributions per row as text, e.g. "month_cos +3.10; temp_mean_3m -0.42"."""
     values = contrib[F.FORECAST_FEATURES]
     top = np.argsort(-values.abs().to_numpy(), axis=1)[:, :n]
     names = np.array(F.FORECAST_FEATURES)[top]
@@ -57,7 +42,6 @@ def _drivers(contrib, n=DRIVERS):
 
 
 def forecast_group(df, future, group):
-    """Train the chosen variant on every known month and forecast the future rows."""
     target = f"per1000_{group}"
     spec = json.loads((M.RESULTS_DIR / f"{group}_model.json").read_text())
     objective, form = M.VARIANTS[spec["chosen"]]

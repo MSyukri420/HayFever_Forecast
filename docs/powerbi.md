@@ -9,13 +9,10 @@ A four-page Power BI report: prescribing trends, practices, next quarter's forec
 ## Open it
 
 ```bash
-python -m src.export      # the star schema in output/powerbi/ (after src.model for all three groups and src.forecast)
-python -m src.pbip        # rewrite powerbi/ from src/pbip.py (only needed after changing the report)
+python -m src.powerbi    # the star schema in output/powerbi/ (after src.model for all three groups and src.forecast)
 ```
 
-Open `powerbi/HayFever.pbip` in Power BI Desktop and select **Refresh**. A project holds no data, so the first refresh loads the CSVs. If the repo isn't at `D:\Github Repo\HayFever_Forecast`, first set the `DataFolder` parameter to your `output/powerbi` folder (**Transform data → Edit parameters**).
-
-`src/pbip.py` writes the whole project: tables, types, relationships, measures, pages, visuals and the colour theme. Edits made in Desktop are saved back to the same files. Running `src.pbip` again replaces them.
+Open `powerbi/HayFever.pbip` in Power BI Desktop and select **Refresh**. A project holds no data, so the first refresh loads the CSVs. If the repo isn't at `D:\Github Repo\HayFever_Forecast`, first set the `DataFolder` parameter to your `output/powerbi` folder (**Transform data → Edit parameters**). Edits made in Desktop are saved back to the same files.
 
 ## Pages
 
@@ -106,7 +103,7 @@ The measures were checked against the repo's results by querying the open model:
 
 ## How to read the SPC chart
 
-It is an XmR (individuals) control chart of the monthly error of the regional forecast on the 30 test months, built in SQL in [`src/export.py`](../src/export.py). The centre line is the mean error, and the limits are the mean ± 2.66 × the average month-to-month change (moving range). A month outside the limits, or a run of 7 or more months on one side of the mean, means something changed and is worth a look. Inside that, the error is ordinary month-to-month noise.
+It is an XmR (individuals) control chart of the monthly error of the regional forecast on the 30 test months, built in SQL in [`src/powerbi.py`](../src/powerbi.py). The centre line is the mean error, and the limits are the mean ± 2.66 × the average month-to-month change (moving range). A month outside the limits, or a run of 7 or more months on one side of the mean, means something changed and is worth a look. Inside that, the error is ordinary month-to-month noise.
 
 - **Antihistamine tablets and nasal sprays: no signals.** The mean error is −0.5% for tablets and −0.1% for sprays, so the forecast is close to unbiased. Every month's miss sits between −6% and +10%, well inside limits of about ±13%.
 - **Eye drops: two signals.** June 2024 was over-forecast by 19%, just above the upper limit. And from Sep 2025 to Mar 2026 the forecast was under every month (7 in a row), so eye-drop prescribing rose that winter faster than the model expected. A team using this forecast would review the eye-drop model when a run like that starts, rather than wait for the yearly check.

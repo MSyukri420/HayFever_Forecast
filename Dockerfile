@@ -1,11 +1,6 @@
-# Forecast API image: serves the forecasts made by src.forecast.
-#
-#   python -m src.forecast                       # make output/forecast/ first
+# Serves output/forecast/ (run python -m src.forecast first)
 #   docker build -t hayfever-api .
-#   docker run -p 8000:8000 hayfever-api         # then open http://127.0.0.1:8000/docs
-#
-# Only the API's packages are installed (no LightGBM or PyTorch): training happens outside
-# the container, and a new forecast means a new image.
+#   docker run -p 8000:8000 hayfever-api
 FROM python:3.12-slim
 
 WORKDIR /app

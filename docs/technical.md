@@ -211,20 +211,20 @@ Python 3.12. PyTorch's CPU build is enough: `pip install torch --index-url https
 pip install -r requirements.txt
 
 # download any missing data, then build dataset/processed/model_table.csv and features.csv
-# (first run about 15 minutes, mostly API calls; then seconds from the cache)
-python -m src.run_all
+# (first run about 15 minutes, mostly API calls; then seconds from the cache; --no-download skips fetching)
+python -m src.preprocess
 
 # tests: leakage, table build, experiment log, API
 python -m pytest
 
-# validate, choose a variant, refit, and score the test for one drug group,
-# with the PyTorch comparison (about 4 minutes each; --no-nn skips PyTorch)
+# validate, choose a variant, refit, and score the test for one drug group, with the PyTorch
+# comparison, 95% ranges for the gains and interval coverage (about 4 minutes each; --no-nn skips PyTorch)
 python -m src.model --target antihist
 python -m src.model --target nasal
 python -m src.model --target eye
 
-# 95% ranges for the gains, and prediction-interval coverage on the test
-python -m src.evaluate
+# redo only the gain ranges and coverage from the saved predictions
+python -m src.model --target antihist --evaluate-only
 
 # train on all the data and forecast the next 3 months for every practice
 python -m src.forecast
@@ -235,11 +235,9 @@ uvicorn src.api:app
 # charts and figure_data.csv into docs/figures/
 python -m src.graph
 
-# star schema for Power BI into output/powerbi/ (after all three src.model runs and src.forecast)
-python -m src.export
-
-# rewrite the Power BI project in powerbi/ (model, measures and pages); then open HayFever.pbip and Refresh
-python -m src.pbip
+# star schema for Power BI into output/powerbi/ (after all three src.model runs and src.forecast);
+# then open powerbi/HayFever.pbip and Refresh
+python -m src.powerbi
 ```
 
 The API also runs in Docker. The image holds only the API and the forecast files (pandas, FastAPI, uvicorn; no LightGBM or PyTorch), so it is small and a new forecast means a new image:
@@ -250,7 +248,7 @@ docker build -t hayfever-api .
 docker run -p 8000:8000 hayfever-api      # then http://127.0.0.1:8000/docs
 ```
 
-GitHub Actions ([`.github/workflows/tests.yml`](../.github/workflows/tests.yml)) runs the tests on every push and pull request, with the versions pinned in `requirements.txt`. The table-build, keep-rule and API tests run there. The leakage tests need the downloaded data, so they skip in CI and run locally after `src.run_all`.
+GitHub Actions ([`.github/workflows/tests.yml`](../.github/workflows/tests.yml)) runs the tests on every push and pull request, with the versions pinned in `requirements.txt`. The table-build, keep-rule and API tests run there. The leakage tests need the downloaded data, so they skip in CI and run locally after `src.preprocess`.
 
 The Power BI report, its pages, measures and the SPC chart of forecast error are described in [powerbi.md](powerbi.md).
 
@@ -274,7 +272,7 @@ python -m src.experiments --summary
 python -m src.experiments --summary --all
 
 # Optuna search on the 2021-22 folds, then validate the result on all three years
-python -m src.tune --target antihist
+python -m src.experiments --tune antihist
 python -m src.model --target antihist --valid-only --params latest-tune --change "optuna settings"
 ```
 
@@ -283,19 +281,16 @@ python -m src.model --target antihist --valid-only --params latest-tune --change
 ```
 src/
   io.py             downloads (NHSBSA, NHS Digital, Open-Meteo, postcodes.io), cached per month/town
-  preprocess.py     DuckDB SQL: cleaning and joining into one practice-month table
+  preprocess.py     download -> DuckDB SQL practice-month table -> features
   feature.py        forecast features, all from t-3 or earlier
-  model.py          baselines, LightGBM variants, validation, monthly retraining, intervals, SHAP
+  model.py          baselines, LightGBM variants, validation, monthly retraining, intervals, SHAP,
+                    block-bootstrap ranges for the gains, interval coverage
   nn.py             the PyTorch network, validated and retrained the same way
-  evaluate.py       block-bootstrap ranges for the gains, interval coverage
   forecast.py       the deployed model: train on everything, forecast the next 3 months
   api.py            FastAPI service for the forecasts
-  export.py         DuckDB SQL: star schema and SPC table for Power BI
-  pbip.py           writes the Power BI project: TMDL model, DAX measures, PBIR pages
-  experiments.py    experiment log and the keep rule
-  tune.py           Optuna search on the 2021-22 folds
+  powerbi.py        DuckDB SQL: star schema and SPC table for Power BI
+  experiments.py    experiment log, the keep rule, Optuna search on the 2021-22 folds
   graph.py          charts for the README
-  run_all.py        download -> table -> features
 tests/
   test_leakage.py       cutoff test: noise after month C must not change features up to C + 3
   test_preprocess.py    the SQL table build on a tiny hand-made dataset
@@ -305,7 +300,7 @@ docs/
   technical.md      this file
   powerbi.md        the Power BI report: pages, tables, model, DAX measures, the SPC chart
   figures/          charts, Power BI screenshots and figure_data.csv (every plotted number)
-powerbi/            the Power BI project (HayFever.pbip), written by src.pbip
+powerbi/            the Power BI project (HayFever.pbip)
 Dockerfile          the API image (with .dockerignore)
 .github/workflows/  tests on every push
 
@@ -332,11 +327,11 @@ output/
 - `<group>_importance.csv`: share of mean |SHAP| and of LightGBM gain per feature
 - `<group>_shap_by_month.csv`: average SHAP contribution per feature by calendar month
 - `<group>_model.json`: the chosen variant, tree count, settings and interval calibration (read by `src.forecast`)
-- `<group>_gain_ci.csv`, `<group>_coverage.csv`: from `src.evaluate`, the gap ranges and interval coverage above
+- `<group>_gain_ci.csv`, `<group>_coverage.csv`: the gap ranges and interval coverage above
 
 `output/forecast/`, after `python -m src.forecast`: `forecasts.csv` (per practice, group and month: rate, items, 80% range, top 3 SHAP drivers), `regional.csv` (West Midlands totals with ranges) and `meta.json`. The API serves these.
 
-`output/powerbi/`, after `python -m src.export`: three dimension tables (practice, month, drug group), four fact tables (prescribing history, test forecasts, next-3-month forecasts, regional totals) and `fact_error_spc.csv`, the control chart of the monthly regional error. Columns are listed in [powerbi.md](powerbi.md#tables).
+`output/powerbi/`, after `python -m src.powerbi`: three dimension tables (practice, month, drug group), four fact tables (prescribing history, test forecasts, next-3-month forecasts, regional totals) and `fact_error_spc.csv`, the control chart of the monthly regional error. Columns are listed in [powerbi.md](powerbi.md#tables).
 
 Charts in [`figures/`](figures/): [forecast vs actual](figures/forecast_vs_actual.png), [regional rates](figures/regional_rates.png), [scores](figures/scores.png), [error by month](figures/error_by_month.png), [top features](figures/top_features.png), [drivers by month](figures/drivers_by_month.png), [ideas tried](figures/experiments.png), and [`figure_data.csv`](figures/figure_data.csv). The charts show three models (LightGBM, PyTorch and the lift baseline), because three colours are what stays distinct for colour-blind readers when every pair is compared. The `last_year` baseline is in the tables.
 

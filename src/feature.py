@@ -1,46 +1,6 @@
-"""Model features.
+"""Forecast features: everything in FORECAST_FEATURES uses data from month t - HORIZON or earlier.
 
-Usage:
-    from src.feature import monthly_weather, build_features
-    weather = monthly_weather(io.read_table("weather"))   # one row per TOWN x YEAR_MONTH
-    df = build_features(model_table)                      # + forecasting features, HORIZON months ahead
-
-    python -m src.feature            # model_table.csv -> dataset/processed/features.csv
-
-Forecast setup. Prescribing data is published about two months late, so a forecast made
-at the end of month o can only see data up to o, and predicts month t = o + HORIZON.
-Every column in FORECAST_FEATURES uses data from month t - HORIZON or earlier
-(tests/test_leakage.py checks this). Calendar columns and the policy/COVID flags are
-known in advance, so they describe month t itself.
-
-    <g>_lag3, _lag4, _lag5    rate per 1,000 at t-3, t-4, t-5 (latest three known months)
-    <g>_mean3                 mean of those three
-    <g>_lag12, _lag24         same month one and two years earlier
-    <g>_winter_base           mean Dec-Feb rate of the latest winter fully known at t-3:
-                              year-round use (eczema, itch, sleep), not hay fever
-    <g>_lag12_excess          lag12 minus the winter base known at that time, i.e. last
-                              year's hay-fever lift for this month
-    log_patients_lag3         list size at t-3
-    <w>_lag3, temp_mean_3m    weather at t-3, and mean temperature over t-5..t-3
-    month, month_sin/cos, year
-    otc_guidance              1 from Mar 2018, when NHS England told GPs to stop prescribing
-                              for mild hay fever (the drop in the data shows from 2019)
-    covid                     1 for Mar 2020 - Dec 2021 (lockdowns, remote appointments)
-    LAT, LON                  practice location
-(<g> is antihist, nasal or eye.) The lag numbers above assume HORIZON = 3.
-
-Tried and dropped: spring warmth (degree days above 5 °C since 1 Jan, its anomaly, and its
-change on last year) as a pollen stand-in. It made May-Jul forecasts slightly worse for all
-three drug groups and did not improve 2023 validation for antihistamines or nasal sprays:
-June prescribing follows June's own weather (e.g. warm spring 2024, cool June, moderate
-season), which is not known 3 months ahead.
-
-SAME_MONTH_WEATHER is the weather in month t itself. It is not known when forecasting,
-so use it only for explaining past seasons, never in a forecast model.
-
-Known small leak: PATIENTS between quarterly publications (2014 - Apr 2017) is
-interpolated in src.preprocess, so log_patients_lag3 can borrow from the next quarter.
-List sizes move by well under 1% a quarter.
+    python -m src.feature      # model_table.csv -> features.csv
 """
 
 import argparse
@@ -61,19 +21,10 @@ OTC_GUIDANCE_FROM = 201803
 COVID_MONTHS = (202003, 202112)
 WEATHER_COLS = ["temp_mean", "temp_max_mean", "warm_days", "rain_mm", "rain_days",
                 "sunshine_hours", "humidity_mean", "wind_max_mean"]
-SAME_MONTH_WEATHER = WEATHER_COLS
+SAME_MONTH_WEATHER = WEATHER_COLS  # month t's own weather: fine for explaining, never a feature
 
 
 def monthly_weather(daily):
-    """Monthly weather per town from the daily table.
-
-    temp_mean, temp_max_mean   mean of daily mean / daily max temperature (°C)
-    warm_days                  days with max >= 20 °C
-    rain_mm, rain_days         total precipitation, days with >= 1 mm
-    sunshine_hours             total sunshine
-    humidity_mean              mean daily relative humidity (%)
-    wind_max_mean              mean daily max wind speed (km/h)
-    """
     date = pd.to_datetime(daily["date"])
     daily = daily.assign(YEAR_MONTH=date.dt.year * 100 + date.dt.month)
     return daily.groupby(["town", "YEAR_MONTH"]).agg(
@@ -89,7 +40,6 @@ def monthly_weather(daily):
 
 
 def forecast_features(horizon=HORIZON):
-    """Names of the columns build_features adds that are safe to forecast with."""
     lags = [horizon, horizon + 1, horizon + 2]
     cols = []
     for g in GROUPS:
@@ -108,14 +58,13 @@ def _month_index(ym):
 
 
 def _lagged(df, source, keys, cols, k):
-    """Values of ``cols`` from ``source`` k months before each row of ``df``, matched on ``keys``.
-    Merging on a month index (rather than shift) keeps gaps in a practice's history as NaN."""
+    # merge on a month index rather than shift, so gaps in a practice's history stay NaN
     src = source[keys + ["_m"] + cols].assign(_m=source["_m"] + k)
     return df[keys + ["_m"]].merge(src, on=keys + ["_m"], how="left")[cols].to_numpy()
 
 
 def _winter_base(df, rate, at):
-    """Each practice's mean Dec-Feb ``rate`` for the latest winter that ended (Feb) by month index ``at``."""
+    # mean Dec-Feb rate of the latest winter finished by month index `at`
     month = df["YEAR_MONTH"] % 100
     winter = df[month.isin([12, 1, 2])]
     end_year = winter["YEAR_MONTH"] // 100 + (winter["YEAR_MONTH"] % 100 == 12)
@@ -128,7 +77,6 @@ def _winter_base(df, rate, at):
 
 
 def build_features(table, horizon=HORIZON):
-    """Add FORECAST_FEATURES to the model table. Rows and existing columns are unchanged."""
     df = table.copy()
     df["_m"] = _month_index(df["YEAR_MONTH"])
     keys = ["PRACTICE_CODE"]
@@ -144,7 +92,7 @@ def build_features(table, horizon=HORIZON):
 
     df[f"log_patients_lag{horizon}"] = np.log(_lagged(df, df, keys, ["PATIENTS"], horizon)[:, 0])
 
-    # weather lags come from the town table, so a gap in a practice's history doesn't blank them
+    # weather lags come from the town table so practice gaps don't blank them
     town = df[["TOWN", "YEAR_MONTH", "_m"] + WEATHER_COLS].drop_duplicates(["TOWN", "YEAR_MONTH"])
     df[[f"{w}_lag{horizon}" for w in WEATHER_COLS]] = _lagged(df, town, ["TOWN"], WEATHER_COLS, horizon)
     df["temp_mean_3m"] = np.column_stack(

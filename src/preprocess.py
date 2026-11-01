@@ -1,26 +1,6 @@
-"""Clean the raw tables and join them into one practice-month modelling table, in DuckDB SQL.
+"""Download the data, join it into one practice-month table with DuckDB, and add the features.
 
-Usage:
-    from src.preprocess import build_dataset
-    df = build_dataset()             # one row per YEAR_MONTH x PRACTICE_CODE
-
-    python -m src.preprocess         # build and save to dataset/processed/model_table.csv
-
-The raw CSVs are queried in place by DuckDB (no loading step), as the views in SQL below:
-    1. rx_registered: drop prescribing codes with no registered list (walk-in, out-of-hours,
-       etc.), ~1.2% of items.
-    2. items: pivot to one row per practice-month: items_antihist, items_nasal, items_eye
-       (0 when the practice prescribed none of that group that month).
-    3. patients_monthly (pandas, see ``monthly_patients``): list sizes filled between
-       publications. Practice-months under MIN_PATIENTS are dropped, where per-patient rates
-       mean little.
-    4. Target columns per1000_<group> = items / patients * 1000.
-    5. practice_towns: each practice's location and nearest weather town, then that town's
-       weather per month (weather_monthly, from src.feature.monthly_weather).
-Two steps stay in pandas: filling list sizes (linear interpolation) and the monthly weather means.
-DuckDB adds up a month's days in a different order, which flips the rounding of a few means
-that fall exactly between two hundredths; pandas keeps the table identical to the original
-pandas-only build, and so every reported result. Rounding of the rates is done in pandas too.
+    python -m src.preprocess      # about 15 minutes the first time, then from the cache
 """
 
 import argparse
@@ -80,8 +60,7 @@ CREATE VIEW model_table AS
 
 
 def monthly_patients(patients, months):
-    """Fill quarterly gaps and the two missing months by linear interpolation within each
-    practice's own lifetime, plus up to 2 months either side so closing practices keep their last quarter."""
+    # interpolate between publications; 2 months either side keeps a closing practice's last quarter
     wide = patients.pivot(index="YEAR_MONTH", columns="PRACTICE_CODE", values="PATIENTS")
     wide = wide.reindex(sorted(set(wide.index) | set(months)))
     filled = wide.interpolate(limit_area="inside").ffill(limit=2).bfill(limit=2)
@@ -89,7 +68,6 @@ def monthly_patients(patients, months):
 
 
 def connect(data_dir=io.DATA_DIR):
-    """DuckDB connection with the raw CSVs as views, plus the weather towns."""
     con = duckdb.connect()
     for name, file in io.TABLES.items():
         path = (Path(data_dir) / file).as_posix()
@@ -100,7 +78,7 @@ def connect(data_dir=io.DATA_DIR):
 
 
 def build_dataset(data_dir=io.DATA_DIR):
-    """Read, clean and join the raw tables into one row per practice-month."""
+    # list sizes and weather means stay in pandas so the rounding matches the original build
     con = connect(data_dir)
     months = con.sql("SELECT DISTINCT YEAR_MONTH FROM prescriptions "
                      "WHERE PRACTICE_CODE IN (SELECT PRACTICE_CODE FROM patients) ORDER BY 1").df()
@@ -129,12 +107,16 @@ def build_dataset(data_dir=io.DATA_DIR):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--data-dir", type=Path, default=io.DATA_DIR)
-    parser.add_argument("--out", type=Path, default=io.DATA_DIR / "processed" / "model_table.csv")
+    parser.add_argument("--no-download", action="store_true", help="use the data already in dataset/")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
-    io.save_dataset(build_dataset(args.data_dir), args.out)
+    if not args.no_download:
+        io.download_all()
+    processed = io.DATA_DIR / "processed"
+    table = build_dataset()
+    io.save_dataset(table, processed / "model_table.csv")
+    io.save_dataset(feature.build_features(table), processed / "features.csv")
 
 
 if __name__ == "__main__":
